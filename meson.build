@@ -13,6 +13,8 @@ u80211_test_library = static_library(
   'u80211-test',
   files(
     'src/rbtree.c',
+    'src/bss_cache.c',
+    'src/ap.c',
     'tests/kernel_interface.c',
   ),
   include_directories: u80211_include,

@@ -1,0 +1,6 @@
+#ifndef U80211_STATUS_H
+#define U80211_STATUS_H
+
+#define U80211_STATUS_ENOMEM 1
+
+#endif
