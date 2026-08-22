@@ -1,0 +1,6 @@
+interface=ap0
+driver=nl80211
+ctrl_interface=@CTRL_INTERFACE@
+ssid=u80211-test
+hw_mode=g
+channel=4
