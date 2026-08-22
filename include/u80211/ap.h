@@ -1,0 +1,24 @@
+#ifndef U80211_AP_H
+#define U80211_AP_H
+
+#include <u80211/header.h>
+#include <u80211/rbtree.h>
+
+typedef struct {
+	int refcount;
+	u80211_mac_address_t mac_address;
+	u80211_rbtree_t cache_node;
+} u80211_ap_t;
+
+void u80211_ap_inactive(u80211_ap_t *ap);
+
+static inline void u80211_ap_hold(u80211_ap_t *ap) {
+	__atomic_add_fetch(&ap->refcount, 1, __ATOMIC_RELAXED);
+}
+
+static inline void u80211_ap_release(u80211_ap_t *ap) {
+	if (__atomic_sub_fetch(&ap->refcount, 1, __ATOMIC_RELAXED) == 0)
+		u80211_ap_inactive(ap);
+}
+
+#endif
