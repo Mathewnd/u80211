@@ -2,7 +2,7 @@
 #define U80211_U80211_H
 
 #include <stddef.h>
-#include <u80211/header.h>
+#include <u80211/packet.h>
 
 typedef struct u80211_device u80211_device_t;
 

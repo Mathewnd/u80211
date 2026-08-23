@@ -1,7 +1,7 @@
 #ifndef U80211_AP_H
 #define U80211_AP_H
 
-#include <u80211/header.h>
+#include <u80211/packet.h>
 #include <u80211/rbtree.h>
 
 typedef struct {

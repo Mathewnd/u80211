@@ -1,5 +1,5 @@
-#ifndef U80211_HEADER_H
-#define U80211_HEADER_H
+#ifndef U80211_PACKET_H
+#define U80211_PACKET_H
 
 #include <stdint.h>
 
