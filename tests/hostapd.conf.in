@@ -1,6 +1,6 @@
-interface=ap0
+interface=@INTERFACE@
 driver=nl80211
 ctrl_interface=@CTRL_INTERFACE@
-ssid=u80211-test
+ssid=@SSID@
 hw_mode=g
-channel=4
+channel=@CHANNEL@

@@ -1,0 +1,7 @@
+ctrl_interface=@CTRL_INTERFACE@
+ap_scan=1
+
+network={
+	ssid="@SSID@"
+	key_mgmt=NONE
+}

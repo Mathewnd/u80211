@@ -6,6 +6,7 @@
 
 typedef struct {
 	int refcount;
+	int channel;
 	u80211_mac_address_t mac_address;
 	u80211_rbtree_t cache_node;
 } u80211_ap_t;
