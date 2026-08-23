@@ -4,3 +4,39 @@ hello_test = executable(
 )
 
 test('test', hello_test)
+
+threads = dependency('threads')
+
+hwsim_works_test = executable(
+  'hwsim-works',
+  files(
+    'programs/hwsim-works.c',
+    'hwsim.c',
+    'kernel_interface.c',
+  ),
+  include_directories: u80211_include,
+  link_with: u80211_library,
+  dependencies: threads,
+)
+
+hostapd = find_program('hostapd')
+hostapd_cli = find_program('hostapd_cli')
+wpa_supplicant = find_program('wpa_supplicant')
+wpa_cli = find_program('wpa_cli')
+run_with_hostapd = find_program('run-with-hostapd.sh')
+
+test(
+  'hwsim-works',
+  run_with_hostapd,
+  args: [
+    hostapd.full_path(),
+    hostapd_cli.full_path(),
+    wpa_supplicant.full_path(),
+    wpa_cli.full_path(),
+    files('hostapd.conf.in'),
+    files('wpa_supplicant.conf.in'),
+    hwsim_works_test,
+  ],
+  is_parallel: false,
+  timeout: 60,
+)
