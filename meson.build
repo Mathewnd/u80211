@@ -13,6 +13,7 @@ u80211_library = static_library(
   'u80211',
   files(
     'src/device.c',
+    'src/packet.c',
     'src/rbtree.c',
     'src/bss_cache.c',
     'src/ap.c',

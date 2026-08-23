@@ -8,6 +8,7 @@ int u80211_register_device(const u80211_mac_address_t *mac_address, const u80211
 		return U80211_STATUS_ENOMEM;
 
 	device->mac_address = *mac_address;
+	device->packet_count = 0;
 	device->ops = ops;
 	device->driver_data = driver_data;
 	*device_out = device;

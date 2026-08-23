@@ -284,7 +284,6 @@ int hwsim_open(const char *interface_name, u80211_device_t **device_out) {
 
 int hwsim_close(u80211_device_t *device) {
 	hwsim_device_t *hwsim = device->driver_data;
-	u80211_unregister_device(device);
 
 	if (hwsim->receiver_started) {
 		uint64_t wake = 1;
@@ -299,6 +298,7 @@ int hwsim_close(u80211_device_t *device) {
 	}
 
 	int result = hwsim->receiver_error;
+	u80211_unregister_device(device);
 	close(hwsim->wake_fd);
 	close(hwsim->packet_fd);
 	free(hwsim);

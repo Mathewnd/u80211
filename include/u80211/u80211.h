@@ -22,11 +22,16 @@ typedef struct {
 
 struct u80211_device {
 	u80211_mac_address_t mac_address;
+	size_t packet_count;
 	const u80211_device_ops_t *ops;
 	void *driver_data;
 };
 
 void u80211_process_packet(u80211_device_t *device, const void *packet, size_t packet_size);
+
+// these are mostly diagnostic and should not be relied upon
+size_t u80211_get_packet_count(u80211_device_t *device);
+void u80211_reset_packet_count(u80211_device_t *device);
 
 int u80211_register_device(const u80211_mac_address_t *mac_address, const u80211_device_ops_t *ops, void *driver_data, u80211_device_t **device_out);
 void u80211_unregister_device(u80211_device_t *device);
