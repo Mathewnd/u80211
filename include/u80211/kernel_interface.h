@@ -18,6 +18,13 @@ void u80211_kernel_acquire_rwlock_shared(void *rwlock);
 void u80211_kernel_release_rwlock_exclusive(void *rwlock);
 void u80211_kernel_release_rwlock_shared(void *rwlock);
 
+typedef void (*u80211_kernel_work_fn_t)(void *context);
+
+void *u80211_kernel_allocate_work(void);
+// ms == 0 enqueues the work immediatelly. If work is already pending, the new request must be ignored.
+void u80211_kernel_enqueue_work(void *work, u80211_kernel_work_fn_t function, void *context, size_t ms);
+void u80211_kernel_free_work(void *work);
+
 // buffer has an ethernet header.
 void u80211_kernel_receive_callback(void *buffer);
 
