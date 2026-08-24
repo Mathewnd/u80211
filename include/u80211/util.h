@@ -53,6 +53,7 @@ static inline uint64_t u80211_le_to_host64(uint64_t value) {
 
 #define likely(x)	__builtin_expect(!!(x), 1)
 #define unlikely(x)	__builtin_expect(!!(x), 0)
+#define min(a, b)	((a) < (b) ? (a) : (b))
 
 #define container_of(ptr, type, member) \
 	((type *)((uintptr_t)ptr - offsetof(type, member)))
