@@ -64,6 +64,7 @@ void u80211_bss_cache_purge(void) {
 void u80211_bss_cache_insert(u80211_ap_t *ap) {
 	u80211_kernel_acquire_rwlock_exclusive(rwlock);
 
+	// TODO check if already on cache
 	u80211_rbtree_insert(&cache, &ap->cache_node, rbtree_mac_compare);
 	u80211_ap_hold(ap);
 

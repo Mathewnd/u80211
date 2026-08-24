@@ -19,12 +19,21 @@ typedef struct {
 	int (*set_channel)(u80211_device_t *device, int channel);
 } u80211_device_ops_t;
 
+#define U80211_DEVICE_STATE_DOWN 0
+#define U80211_DEVICE_STATE_SCANNING 1
+#define U80211_DEVICE_STATE_AUTHENTICATING 2
+#define U80211_DEVICE_STATE_ASSOCIATING 3
+#define U80211_DEVICE_STATE_ASSOCIATED 4
 struct u80211_device {
 	u80211_mac_address_t mac_address;
+	int state;
 	size_t packet_count;
 	const u80211_device_ops_t *ops;
 	void *driver_data;
+	void *scan_context;
 };
+
+int u80211_scan(u80211_device_t *device);
 
 void u80211_process_packet(u80211_device_t *device, const void *packet, size_t packet_size);
 

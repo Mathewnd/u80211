@@ -19,6 +19,7 @@ u80211_library = static_library(
     'src/rbtree.c',
     'src/bss_cache.c',
     'src/ap.c',
+    'src/scan.c',
     'src/regulatory_database.c',
   ),
   include_directories: u80211_include,
