@@ -64,7 +64,12 @@ void u80211_bss_cache_purge(void) {
 void u80211_bss_cache_insert(u80211_ap_t *ap) {
 	u80211_kernel_acquire_rwlock_exclusive(rwlock);
 
-	// TODO check if already on cache
+	u80211_rbtree_t *node = u80211_rbtree_lookup(cache, &ap->mac_address, rbtree_value_compare);
+	if (node != NULL) {
+		u80211_kernel_release_rwlock_exclusive(rwlock);
+		return;
+	}
+
 	u80211_rbtree_insert(&cache, &ap->cache_node, rbtree_mac_compare);
 	u80211_ap_hold(ap);
 
@@ -75,6 +80,11 @@ void u80211_bss_cache_remove(u80211_mac_address_t *mac) {
 	u80211_kernel_acquire_rwlock_exclusive(rwlock);
 
 	u80211_rbtree_t *node = u80211_rbtree_lookup(cache, mac, rbtree_value_compare);
+	if (node == NULL) {
+		u80211_kernel_release_rwlock_exclusive(rwlock);
+		return;
+	}
+
 	u80211_rbtree_remove(&cache, node);
 
 	u80211_ap_t *ap = container_of(node, u80211_ap_t, cache_node); 
