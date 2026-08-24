@@ -4,8 +4,6 @@
 #include <stddef.h>
 #include <u80211/packet.h>
 
-typedef struct u80211_device u80211_device_t;
-
 typedef struct {
 	void *data;
 	size_t size;
@@ -19,13 +17,18 @@ typedef struct {
 	int (*set_channel)(u80211_device_t *device, int channel);
 } u80211_device_ops_t;
 
+typedef struct {
+	u80211_mac_address_t mac_address;
+	uint8_t rate_bitmap[16];
+} u80211_device_metadata_t;
+
 #define U80211_DEVICE_STATE_DOWN 0
 #define U80211_DEVICE_STATE_SCANNING 1
 #define U80211_DEVICE_STATE_AUTHENTICATING 2
 #define U80211_DEVICE_STATE_ASSOCIATING 3
 #define U80211_DEVICE_STATE_ASSOCIATED 4
 struct u80211_device {
-	u80211_mac_address_t mac_address;
+	u80211_device_metadata_t metadata;
 	int state;
 	size_t packet_count;
 	const u80211_device_ops_t *ops;
@@ -41,7 +44,7 @@ void u80211_process_packet(u80211_device_t *device, const void *packet, size_t p
 size_t u80211_get_packet_count(u80211_device_t *device);
 void u80211_reset_packet_count(u80211_device_t *device);
 
-int u80211_register_device(const u80211_mac_address_t *mac_address, const u80211_device_ops_t *ops, void *driver_data, u80211_device_t **device_out);
+int u80211_register_device(const u80211_device_metadata_t *metadata, const u80211_device_ops_t *ops, void *driver_data, u80211_device_t **device_out);
 void u80211_unregister_device(u80211_device_t *device);
 
 #endif

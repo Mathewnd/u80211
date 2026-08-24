@@ -251,9 +251,21 @@ int hwsim_open(const char *interface_name, u80211_device_t **device_out) {
 		return status_from_errno(error);
 	}
 
-	u80211_mac_address_t mac_address;
-	memcpy(mac_address.bytes, request.ifr_hwaddr.sa_data, sizeof(mac_address.bytes));
-	int error = u80211_register_device(&mac_address, &device_ops, hwsim, &hwsim->device);
+	u80211_device_metadata_t metadata = {
+		.rate_bitmap = {
+			[2 / 8] = 1 << (2 % 8) | 1 << (4 % 8),
+			[11 / 8] = 1 << (11 % 8) | 1 << (12 % 8),
+			[18 / 8] = 1 << (18 % 8) | 1 << (22 % 8),
+			[24 / 8] = 1 << (24 % 8),
+			[36 / 8] = 1 << (36 % 8),
+			[48 / 8] = 1 << (48 % 8),
+			[72 / 8] = 1 << (72 % 8),
+			[96 / 8] = 1 << (96 % 8),
+			[108 / 8] = 1 << (108 % 8),
+		},
+	};
+	memcpy(metadata.mac_address.bytes, request.ifr_hwaddr.sa_data, sizeof(metadata.mac_address.bytes));
+	int error = u80211_register_device(&metadata, &device_ops, hwsim, &hwsim->device);
 	if (error != 0) {
 		close(hwsim->packet_fd);
 		free(hwsim);
