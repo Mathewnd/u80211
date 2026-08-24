@@ -39,7 +39,17 @@ typedef struct {
 	uint16_t sequence_control;
 } u80211_header_description_t;
 
-int u80211_deserialize_header(void *source, u80211_header_description_t *header, void **data_start);
+typedef struct {
+	u80211_mac_address_t mac_address;
+	uint16_t interval;
+	uint16_t capabilities;
+	uint8_t channel;
+	uint8_t rate_bitmap[16];
+	char ssid[33];
+} u80211_beacon_data_t;
+
+int u80211_deserialize_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size);
 int u80211_serialize_header(u80211_header_description_t *header, void *destination_end, size_t space_available);
+void u80211_process_management_packet(u80211_header_description_t *header, const void *data, size_t data_size); // called from an interrupt context
 
 #endif
