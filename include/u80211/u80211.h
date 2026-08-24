@@ -13,8 +13,7 @@ typedef struct {
 } u80211_tx_buffer_descriptor_t;
 
 typedef struct {
-	int (*allocate_tx_buffer)(u80211_device_t *device, size_t size,
-			u80211_tx_buffer_descriptor_t *buffer_descriptor);
+	int (*allocate_tx_buffer)(u80211_device_t *device, size_t size, u80211_tx_buffer_descriptor_t *buffer_descriptor);
 	int (*free_tx_buffer)(u80211_device_t *device, u80211_tx_buffer_descriptor_t *buffer_descriptor);
 	int (*transmit)(u80211_device_t *device, u80211_tx_buffer_descriptor_t *buffer_descriptor);
 	int (*set_channel)(u80211_device_t *device, int channel);
