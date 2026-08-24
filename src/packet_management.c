@@ -24,14 +24,19 @@ static bool handle_rates(u80211_beacon_data_t *beacon_data, uint8_t *rates, size
 	return true;
 }
 
-// TODO: endianness handling
+static uint16_t deserialize_le16(const void *source) {
+	uint16_t value;
+	u80211_memcpy(&value, source, sizeof(value));
+	return le_to_host(value);
+}
+
 static void process_probe_response(u80211_header_description_t *header, const void *data, size_t data_size) {
 	if (data_size < 12)
 		return;
 
 	u80211_beacon_data_t beacon_data;
-	u80211_memcpy(&beacon_data.interval, (const void *)((uintptr_t)data + 8), 2);
-	u80211_memcpy(&beacon_data.capabilities, (const void *)((uintptr_t)data + 10), 2);
+	beacon_data.interval = deserialize_le16((const void *)((uintptr_t)data + 8));
+	beacon_data.capabilities = deserialize_le16((const void *)((uintptr_t)data + 10));
 	u80211_memset(&beacon_data.rate_bitmap, 0, sizeof(beacon_data.rate_bitmap));
 	beacon_data.mac_address = header->addresses[2];
 	beacon_data.ssid[0] = '\0';
