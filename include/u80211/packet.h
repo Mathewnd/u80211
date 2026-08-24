@@ -1,6 +1,7 @@
 #ifndef U80211_PACKET_H
 #define U80211_PACKET_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 typedef struct {
@@ -38,7 +39,7 @@ typedef struct {
 	uint16_t sequence_control;
 } u80211_header_description_t;
 
-int u80211_deserialize_header(void *source, u80211_header_description_t *header, void *data_start);
+int u80211_deserialize_header(void *source, u80211_header_description_t *header, void **data_start);
 int u80211_serialize_header(u80211_header_description_t *header, void *destination_end, size_t space_available);
 
 #endif

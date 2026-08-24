@@ -1,6 +1,7 @@
 #include <u80211/packet.h>
 #include <u80211/status.h>
 #include <u80211/u80211.h>
+#include <u80211/util.h>
 
 #include <string.h>
 
@@ -17,18 +18,31 @@ void u80211_reset_packet_count(u80211_device_t *device) {
 }
 
 // TODO: use our own string.h
-// TODO: everything here needs to account for the header being in little endian order
+
+static uint16_t deserialize_le16(void *source) {
+	uint16_t value;
+	memcpy(&value, source, sizeof(value));
+	return le_to_host(value);
+}
+
+static void serialize_le16(uint8_t *destination, uint16_t value) {
+	uint16_t little_endian_value = host_to_le(value);
+	memcpy(destination, &little_endian_value, sizeof(little_endian_value));
+}
 
 static int deserialize_management_header(void *source, u80211_header_description_t *header, void **data_start) {
-	memcpy(&header->address[1], source, 6);
-	memcpy(&header->address[2], (void *)((uintptr_t)source + 6), 6);
-	memcpy(&header->sequence_control, (void *)((uintptr_t)source + 12), 2);
+	memcpy(&header->addresses[1], source, 6);
+	memcpy(&header->addresses[2], (void *)((uintptr_t)source + 6), 6);
+	header->sequence_control = deserialize_le16((void *)((uintptr_t)source + 12));
 
 	*data_start = (void *)((uintptr_t)source + 14);
-	return U80211_STATUS_OK;
+	return U80211_STATUS_SUCCESS;
 }
 
 static int deserialize_control_header(void *source, u80211_header_description_t *header, void **data_start) {
+	(void)source;
+	(void)header;
+	(void)data_start;
 	return U80211_STATUS_UNSUPPORTED;
 }
 
@@ -38,35 +52,35 @@ static int deserialize_data_header(void *source, u80211_header_description_t *he
 	if (subtype != U80211_HEADER_FRAME_CONTROL_SUBTYPE_DATA && subtype != U80211_HEADER_FRAME_CONTROL_SUBTYPE_NULL_DATA)
 		return U80211_STATUS_UNSUPPORTED;
 
-	memcpy(&header->address[1], source, 6);
-	memcpy(&header->address[2], (void *)((uintptr_t)source + 6), 6);
+	memcpy(&header->addresses[1], source, 6);
+	memcpy(&header->addresses[2], (void *)((uintptr_t)source + 6), 6);
 
 	if ((header->frame_control & U80211_HEADER_FRAME_CONTROL_TO_DS) && (header->frame_control & U80211_HEADER_FRAME_CONTROL_FROM_DS)) {
-		memcpy(&header->address[3], (void *)((uintptr_t)source + 12), 6);
-		memcpy(&header->sequence_control, (void *)((uintptr_t)source + 18), 2);
+		memcpy(&header->addresses[3], (void *)((uintptr_t)source + 12), 6);
+		header->sequence_control = deserialize_le16((void *)((uintptr_t)source + 18));
 		*data_start = (void *)((uintptr_t)source + 20);
 	} else {
-		memcpy(&header->sequence_control, (void *)((uintptr_t)source + 12), 2);
+		header->sequence_control = deserialize_le16((void *)((uintptr_t)source + 12));
 		*data_start = (void *)((uintptr_t)source + 14);
 	}
 
-	return U80211_STATUS_OK;
+	return U80211_STATUS_SUCCESS;
 }
 
 int u80211_deserialize_header(void *source, u80211_header_description_t *header, void **data_start) {
-	memcpy(&header->frame_control, source, 2);
-	memcpy(&header->duration_id, (void *)((uintptr_t)source + 2), 2);
+	header->frame_control = deserialize_le16(source);
+	header->duration_id = deserialize_le16((void *)((uintptr_t)source + 2));
 	memcpy(&header->addresses[0], (void *)((uintptr_t)source + 4), 6);
 
 	void *next_part = (void *)((uintptr_t)source + 10);
 
 	switch (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header->frame_control)) {
 		case U80211_HEADER_FRAME_CONTROL_TYPE_MANAGEMENT:
-			return deserialize_management_header(next_part, header);
+			return deserialize_management_header(next_part, header, data_start);
 		case U80211_HEADER_FRAME_CONTROL_TYPE_CONTROL:
-			return deserialize_control_header(next_part, header);
+			return deserialize_control_header(next_part, header, data_start);
 		case U80211_HEADER_FRAME_CONTROL_TYPE_DATA:
-			return deserialize_data_header(next_part, header);
+			return deserialize_data_header(next_part, header, data_start);
 		default:
 			return U80211_STATUS_UNSUPPORTED;
 	}
@@ -74,8 +88,8 @@ int u80211_deserialize_header(void *source, u80211_header_description_t *header,
 
 
 static void serialize_common_header(u80211_header_description_t *header, uint8_t *destination) {
-	memcpy(destination, &header->frame_control, 2);
-	memcpy(destination + 2, &header->duration_id, 2);
+	serialize_le16(destination, header->frame_control);
+	serialize_le16(destination + 2, header->duration_id);
 	memcpy(destination + 4, &header->addresses[0], 6);
 }
 
@@ -83,17 +97,20 @@ static int serialize_management_header(u80211_header_description_t *header, void
 	if (space_available < 24)
 		return U80211_STATUS_NOT_ENOUGH_SPACE;
 
-	uint8_t *destination = (uint8_t *)destination_end - header_size;
+	uint8_t *destination = (uint8_t *)destination_end - 24;
 
 	serialize_common_header(header, destination);
 	memcpy(destination + 10, &header->addresses[1], 6);
 	memcpy(destination + 16, &header->addresses[2], 6);
-	memcpy(destination + 22, &header->sequence_control, 2);
+	serialize_le16(destination + 22, header->sequence_control);
 
 	return U80211_STATUS_SUCCESS;
 }
 
 static int serialize_control_header(u80211_header_description_t *header, void *destination_end, size_t space_available) {
+	(void)header;
+	(void)destination_end;
+	(void)space_available;
 	return U80211_STATUS_UNSUPPORTED;
 }
 
@@ -116,9 +133,9 @@ static int serialize_data_header(u80211_header_description_t *header, void *dest
 
 	if (header_size == 30) {
 		memcpy(destination + 22, &header->addresses[3], 6);
-		memcpy(destination + 28, &header->sequence_control, 2);
+		serialize_le16(destination + 28, header->sequence_control);
 	} else {
-		memcpy(destination + 22, &header->sequence_control, 2);
+		serialize_le16(destination + 22, header->sequence_control);
 	}
 
 	return U80211_STATUS_SUCCESS;
