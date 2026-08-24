@@ -14,6 +14,7 @@ u80211_library = static_library(
   files(
     'src/device.c',
     'src/packet.c',
+    'src/string.c',
     'src/rbtree.c',
     'src/bss_cache.c',
     'src/ap.c',
