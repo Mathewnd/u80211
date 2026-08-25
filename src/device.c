@@ -10,12 +10,21 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 	device->metadata = *metadata;
 	device->packet_count = 0;
 	device->state = U80211_DEVICE_STATE_DOWN;
+	device->scan_context = NULL;
 	device->ops = ops;
 	device->driver_data = driver_data;
+
+	int status = u80211_bss_cache_init(&device->bss_cache);
+	if (status != U80211_STATUS_SUCCESS) {
+		u80211_kernel_free(device);
+		return status;
+	}
+
 	*device_out = device;
 	return U80211_STATUS_SUCCESS;
 }
 
 void u80211_unregister_device(u80211_device_t *device) {
+	u80211_bss_cache_deinit(&device->bss_cache);
 	u80211_kernel_free(device);
 }

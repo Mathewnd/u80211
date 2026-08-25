@@ -2,6 +2,7 @@
 #define U80211_U80211_H
 
 #include <stddef.h>
+#include <u80211/bss_cache.h>
 #include <u80211/packet.h>
 
 typedef struct {
@@ -34,6 +35,7 @@ struct u80211_device {
 	const u80211_device_ops_t *ops;
 	void *driver_data;
 	void *scan_context;
+	bss_cache_t bss_cache;
 };
 
 int u80211_scan(u80211_device_t *device);

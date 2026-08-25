@@ -3,10 +3,16 @@
 
 #include <u80211/ap.h>
 
-int u80211_bss_cache_init(void);
-void u80211_bss_cache_purge(void);
-void u80211_bss_cache_insert(u80211_ap_t *ap);
-void u80211_bss_cache_remove(u80211_mac_address_t *mac);
-u80211_ap_t *u80211_bss_cache_find(u80211_mac_address_t *mac);
+typedef struct {
+	void *rwlock;
+	u80211_rbtree_t *root;
+} bss_cache_t;
+
+int u80211_bss_cache_init(bss_cache_t *cache);
+void u80211_bss_cache_deinit(bss_cache_t *cache);
+void u80211_bss_cache_purge(bss_cache_t *cache);
+void u80211_bss_cache_insert(bss_cache_t *cache, u80211_ap_t *ap);
+void u80211_bss_cache_remove(bss_cache_t *cache, u80211_mac_address_t *mac);
+u80211_ap_t *u80211_bss_cache_find(bss_cache_t *cache, u80211_mac_address_t *mac);
 
 #endif
