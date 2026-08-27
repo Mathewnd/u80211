@@ -15,7 +15,7 @@ void u80211_process_packet(u80211_device_t *device, const void *packet, size_t p
 
 	switch (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header.frame_control)) {
 		case U80211_HEADER_FRAME_CONTROL_TYPE_MANAGEMENT:
-			u80211_process_management_packet(&header, data_start, data_size);
+			u80211_process_management_packet(device, &header, data_start, data_size);
 	}
 }
 
@@ -115,11 +115,10 @@ static void serialize_common_header(u80211_header_description_t *header, uint8_t
 	u80211_memcpy(destination + 4, &header->addresses[0], 6);
 }
 
-static int serialize_management_header(u80211_header_description_t *header, void *destination_end, size_t space_available) {
-	if (space_available < 24)
+static int serialize_management_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor) {
+	uint8_t *destination = u80211_descriptor_allocate_space(descriptor, 24);
+	if (destination == NULL)
 		return U80211_STATUS_NOT_ENOUGH_SPACE;
-
-	uint8_t *destination = (uint8_t *)destination_end - 24;
 
 	serialize_common_header(header, destination);
 	u80211_memcpy(destination + 10, &header->addresses[1], 6);
@@ -129,14 +128,13 @@ static int serialize_management_header(u80211_header_description_t *header, void
 	return U80211_STATUS_SUCCESS;
 }
 
-static int serialize_control_header(u80211_header_description_t *header, void *destination_end, size_t space_available) {
+static int serialize_control_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor) {
 	(void)header;
-	(void)destination_end;
-	(void)space_available;
+	(void)descriptor;
 	return U80211_STATUS_UNSUPPORTED;
 }
 
-static int serialize_data_header(u80211_header_description_t *header, void *destination_end, size_t space_available) {
+static int serialize_data_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor) {
 	int subtype = U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control);
 
 	if (subtype != U80211_HEADER_FRAME_CONTROL_SUBTYPE_DATA && subtype != U80211_HEADER_FRAME_CONTROL_SUBTYPE_NULL_DATA)
@@ -144,10 +142,9 @@ static int serialize_data_header(u80211_header_description_t *header, void *dest
 
 	size_t header_size = (header->frame_control & U80211_HEADER_FRAME_CONTROL_TO_DS) && (header->frame_control & U80211_HEADER_FRAME_CONTROL_FROM_DS) ? 30 : 24;
 
-	if (space_available < header_size)
+	uint8_t *destination = u80211_descriptor_allocate_space(descriptor, header_size);
+	if (destination == NULL)
 		return U80211_STATUS_NOT_ENOUGH_SPACE;
-
-	uint8_t *destination = (uint8_t *)destination_end - header_size;
 
 	serialize_common_header(header, destination);
 	u80211_memcpy(destination + 10, &header->addresses[1], 6);
@@ -163,14 +160,14 @@ static int serialize_data_header(u80211_header_description_t *header, void *dest
 	return U80211_STATUS_SUCCESS;
 }
 
-int u80211_serialize_header(u80211_header_description_t *header, void *destination_end, size_t space_available) {
+int u80211_serialize_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor) {
 	switch (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header->frame_control)) {
 		case U80211_HEADER_FRAME_CONTROL_TYPE_MANAGEMENT:
-			return serialize_management_header(header, destination_end, space_available);
+			return serialize_management_header(header, descriptor);
 		case U80211_HEADER_FRAME_CONTROL_TYPE_CONTROL:
-			return serialize_control_header(header, destination_end, space_available);
+			return serialize_control_header(header, descriptor);
 		case U80211_HEADER_FRAME_CONTROL_TYPE_DATA:
-			return serialize_data_header(header, destination_end, space_available);
+			return serialize_data_header(header, descriptor);
 		default:
 			return U80211_STATUS_UNSUPPORTED;
 	}

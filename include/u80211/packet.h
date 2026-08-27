@@ -4,6 +4,14 @@
 #include <stddef.h>
 #include <stdint.h>
 
+typedef struct u80211_device u80211_device_t;
+
+typedef struct {
+	void *data;
+	size_t size;
+	size_t current_offset;
+} u80211_tx_buffer_descriptor_t;
+
 typedef struct {
 	uint8_t bytes[6];
 } u80211_mac_address_t;
@@ -49,7 +57,9 @@ typedef struct {
 } u80211_beacon_data_t;
 
 int u80211_deserialize_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size);
-int u80211_serialize_header(u80211_header_description_t *header, void *destination_end, size_t space_available);
-void u80211_process_management_packet(u80211_header_description_t *header, const void *data, size_t data_size); // called from an interrupt context
+int u80211_serialize_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor);
+void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size); // called from an interrupt context
+
+int u80211_send_probe_request(u80211_device_t *device);
 
 #endif

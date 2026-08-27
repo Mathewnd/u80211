@@ -2,7 +2,11 @@
 #include <u80211/packet.h>
 #include <u80211/kernel_interface.h>
 #include <u80211/bss_cache.h>
+#include <u80211/regulatory_database.h>
+#include <u80211/scan.h>
 #include <u80211/status.h>
+#include <u80211/string.h>
+#include <u80211/util.h>
 #include <stdbool.h>
 
 #define WAIT_MS 75
@@ -17,23 +21,70 @@ typedef struct {
 	void *work;
 } u80211_scan_state_t;
 
-static void free_scan_state(u80211_scan_state_t *scan_state) {
-	scan_state->device->scan_context = NULL;
+typedef struct {
+	u80211_list_node_t node;
+	void *semaphore;
+} u80211_scan_waiter_t;
+
+static void wake_scan_waiters(u80211_device_t *device) {
+	u80211_list_node_t *node;
+	while ((node = u80211_list_pop_front(&device->scan_waiters)) != NULL) {
+		u80211_scan_waiter_t *waiter = container_of(node, u80211_scan_waiter_t, node);
+		u80211_kernel_signal_semaphore(waiter->semaphore);
+	}
+}
+
+static void destroy_scan_state(u80211_scan_state_t *scan_state) {
 	u80211_kernel_free_work(scan_state->work);
 	u80211_kernel_free(scan_state);
 }
-#define U80211_CHANNEL_RULES_DISABLED 1 // no receive/transmission.
-#define U80211_CHANNEL_RULES_PASSIVE 2 // only transmit when a passive scan returns an AP in that channel.
-typedef struct {
-	int flags;
-	int max_dbm;
-} u80211_channel_rules_t;
 
-u80211_channel_rules_t u80211_get_channel_rules(int channel);
+static void complete_scan(u80211_scan_state_t *scan_state) {
+	u80211_device_t *device = scan_state->device;
+
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+
+	u80211_set_device_state(device, U80211_DEVICE_STATE_SCANNING, U80211_DEVICE_STATE_DOWN);
+	wake_scan_waiters(device);
+
+	u80211_kernel_release_spinlock(device->scan_spinlock);
+
+	destroy_scan_state(scan_state);
+}
+
+void u80211_scan_process_response(u80211_device_t *device, const u80211_beacon_data_t *beacon_data) {
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	u80211_scan_state_t *scan_state = device->scan_context;
+
+	if (scan_state == NULL || !scan_state->receiving || scan_state->received >= BUFFER_COUNT) {
+		u80211_kernel_release_spinlock(device->scan_spinlock);
+		return;
+	}
+
+	size_t slot = scan_state->received++;
+	scan_state->buffer[slot] = *beacon_data;
+	if (scan_state->buffer[slot].channel == 0)
+		scan_state->buffer[slot].channel = scan_state->current_channel;
+
+	u80211_kernel_release_spinlock(device->scan_spinlock);
+}
+
+static bool valid_bssid(const u80211_mac_address_t *mac_address) {
+	bool all_zero = true;
+	bool all_broadcast = true;
+	for (size_t i = 0; i < sizeof(mac_address->bytes); ++i) {
+		if (mac_address->bytes[i] != 0)
+			all_zero = false;
+		if (mac_address->bytes[i] != 0xff)
+			all_broadcast = false;
+	}
+
+	return !all_zero && !all_broadcast && !(mac_address->bytes[0] & 1);
+}
 
 // TODO: this obviously won't work for anything other than 2.4ghz wifi
 static int next_channel(int current) {
-	for (int channel = current + 1; current <= 14; ++current) {
+	for (int channel = current + 1; channel <= 14; ++channel) {
 		if (u80211_get_channel_rules(channel).flags & (U80211_CHANNEL_RULES_DISABLED | U80211_CHANNEL_RULES_PASSIVE))
 			continue;
 
@@ -47,26 +98,43 @@ static void scan_work(void *ctx) {
 	u80211_scan_state_t *scan_state = ctx;
 	u80211_device_t *device = scan_state->device;
 
-	__atomic_store_n(&scan_state->receiving, false, __ATOMIC_RELAXED);
-	size_t received = __atomic_load_n(&scan_state->received, __ATOMIC_ACQUIRE);
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	scan_state->receiving = false;
+	size_t received = scan_state->received;
+	scan_state->received = 0;
+	u80211_kernel_release_spinlock(device->scan_spinlock);
 
 	for (size_t i = 0; i < received; ++i) {
-		// TODO: for each received in buffer, add to bss cache a new description
+		u80211_beacon_data_t *beacon_data = &scan_state->buffer[i];
+		if (beacon_data->channel != scan_state->current_channel || !valid_bssid(&beacon_data->mac_address))
+			continue;
+
+		u80211_ap_t *ap = u80211_ap_allocate(beacon_data);
+		if (ap == NULL)
+			continue;
+
+		u80211_bss_cache_insert(&device->bss_cache, ap);
+		u80211_ap_release(ap);
 	}
 
-	scan_state->current_channel = next_channel(scan_state->current_channel);
-	if (scan_state->current_channel < 0) {
-		free_scan_state(scan_state);
-		__atomic_store_n(&device->state, U80211_DEVICE_STATE_DOWN, __ATOMIC_RELEASE);
-		// TODO: signal state-change event
+	int current_channel = next_channel(scan_state->current_channel);
+	if (current_channel < 0) {
+		complete_scan(scan_state);
 		return;
 	}
 
-	__atomic_store_n(&scan_state->received, 0, __ATOMIC_RELAXED);
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	scan_state->current_channel = current_channel;
+	u80211_kernel_release_spinlock(device->scan_spinlock);
 
 	device->ops->set_channel(device, scan_state->current_channel);
-	__atomic_store_n(&scan_state->receiving, true, __ATOMIC_RELEASE);
-	// TODO send packet
+
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	scan_state->receiving = true;
+	u80211_kernel_release_spinlock(device->scan_spinlock);
+
+	u80211_send_probe_request(device);
+
 	u80211_kernel_enqueue_work(scan_state->work, scan_work, scan_state, WAIT_MS);
 }
 
@@ -81,26 +149,59 @@ int u80211_scan(u80211_device_t *device) {
 		return U80211_STATUS_ENOMEM;
 	}
 
-	__atomic_store_n(&scan_state->received, 0, __ATOMIC_RELAXED);
+	scan_state->received = 0;
+	scan_state->receiving = false;
 	scan_state->device = device;
 	scan_state->current_channel = next_channel(0);
 	if (scan_state->current_channel < 0) {
-		free_scan_state(scan_state);
+		destroy_scan_state(scan_state);
 		return U80211_STATUS_NOT_PERMITTED;
 	}
 
-	int expected = U80211_DEVICE_STATE_DOWN;
-	if (__atomic_compare_exchange_n(&device->state, &expected, U80211_DEVICE_STATE_SCANNING, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)) {
-		free_scan_state(scan_state);
+	if (!u80211_set_device_state(device, U80211_DEVICE_STATE_DOWN, U80211_DEVICE_STATE_SCANNING)) {
+		destroy_scan_state(scan_state);
 		return U80211_STATUS_BUSY;
 	}
 
-	u80211_bss_cache_purge();
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	device->scan_context = scan_state;
+	u80211_kernel_release_spinlock(device->scan_spinlock);
+
+	u80211_bss_cache_purge(&device->bss_cache);
 
 	device->ops->set_channel(device, scan_state->current_channel);
-	__atomic_store_n(&scan_state->receiving, true, __ATOMIC_RELEASE);
-	// TODO send packet
+
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	scan_state->receiving = true;
+	u80211_kernel_release_spinlock(device->scan_spinlock);
+
+	u80211_send_probe_request(device);
+
 	u80211_kernel_enqueue_work(scan_state->work, scan_work, scan_state, WAIT_MS);
 
+	return U80211_STATUS_SUCCESS;
+}
+
+int u80211_wait_for_scan_completion(u80211_device_t *device) {
+	void *semaphore = u80211_kernel_allocate_semaphore(0);
+	if (semaphore == NULL)
+		return U80211_STATUS_RETRY;
+
+	u80211_scan_waiter_t waiter = {
+		.semaphore = semaphore,
+	};
+
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	if (u80211_get_device_state(device) != U80211_DEVICE_STATE_SCANNING) {
+		u80211_kernel_release_spinlock(device->scan_spinlock);
+		u80211_kernel_free_semaphore(semaphore);
+		return U80211_STATUS_SUCCESS;
+	}
+
+	u80211_list_push_back(&device->scan_waiters, &waiter.node);
+	u80211_kernel_release_spinlock(device->scan_spinlock);
+
+	u80211_kernel_wait_semaphore(semaphore);
+	u80211_kernel_free_semaphore(semaphore);
 	return U80211_STATUS_SUCCESS;
 }

@@ -1,13 +1,19 @@
 #include <stdbool.h>
 
 #include <u80211/packet.h>
+#include <u80211/scan.h>
+#include <u80211/status.h>
 #include <u80211/string.h>
+#include <u80211/u80211.h>
 #include <u80211/util.h>
 
 #define IE_ID_SSID 0
 #define IE_ID_RATES 1
 #define IE_ID_CHANNEL 3
 #define IE_ID_RATES_EXT 50
+
+#define MANAGEMENT_HEADER_SIZE 24
+#define MAX_RATE_VALUE 125
 
 // TODO check if basic rates are supported by the device
 static bool handle_rates(u80211_beacon_data_t *beacon_data, uint8_t *rates, size_t count) {
@@ -30,17 +36,15 @@ static uint16_t deserialize_le16(const void *source) {
 	return le_to_host(value);
 }
 
-static void process_probe_response(u80211_header_description_t *header, const void *data, size_t data_size) {
+static void process_probe_response(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
 	if (data_size < 12)
 		return;
 
 	u80211_beacon_data_t beacon_data;
+	u80211_memset(&beacon_data, 0, sizeof(beacon_data));
 	beacon_data.interval = deserialize_le16((const void *)((uintptr_t)data + 8));
 	beacon_data.capabilities = deserialize_le16((const void *)((uintptr_t)data + 10));
-	u80211_memset(&beacon_data.rate_bitmap, 0, sizeof(beacon_data.rate_bitmap));
 	beacon_data.mac_address = header->addresses[2];
-	beacon_data.ssid[0] = '\0';
-	beacon_data.channel = 0;
 
 	size_t ie_size = data_size - 12;
 	size_t ie_offset = 0;
@@ -94,14 +98,78 @@ static void process_probe_response(u80211_header_description_t *header, const vo
 		ie_offset += size + 2;
 	}
 
-	// TODO pass data to higher layer
+	u80211_scan_process_response(device, &beacon_data);
 }
 
-void u80211_process_management_packet(u80211_header_description_t *header, const void *data, size_t data_size) {
+void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
 	int subtype = U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control);
 
 	switch (subtype) {
 		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_PROBE_RESPONSE:
-			process_probe_response(header, data, data_size);
+			process_probe_response(device, header, data, data_size);
 	}
+}
+
+int u80211_send_probe_request(u80211_device_t *device) {
+	size_t rate_count = 0;
+	for (size_t rate = 0; rate <= MAX_RATE_VALUE; ++rate) {
+		if (device->metadata.rate_bitmap[rate / 8] & (1 << (rate % 8)))
+			++rate_count;
+	}
+
+	size_t supported_rate_count = min(rate_count, 8);
+	size_t extended_rate_count = rate_count - supported_rate_count;
+	size_t probe_request_data_size = 2 + 2 + supported_rate_count;
+	if (extended_rate_count != 0)
+		probe_request_data_size += 2 + extended_rate_count;
+
+	u80211_tx_buffer_descriptor_t descriptor;
+	int status = device->ops->allocate_tx_buffer(device, MANAGEMENT_HEADER_SIZE + probe_request_data_size, &descriptor);
+	if (status != U80211_STATUS_SUCCESS)
+		return status;
+
+	uint8_t *probe_request_data = u80211_descriptor_allocate_space(&descriptor, probe_request_data_size);
+	if (probe_request_data == NULL) {
+		device->ops->free_tx_buffer(device, &descriptor);
+		return U80211_STATUS_NOT_ENOUGH_SPACE;
+	}
+
+	probe_request_data[0] = IE_ID_SSID;
+	probe_request_data[1] = 0;
+	probe_request_data[2] = IE_ID_RATES;
+	probe_request_data[3] = supported_rate_count;
+
+	size_t rate_index = 0;
+	for (size_t rate = 0; rate <= MAX_RATE_VALUE; ++rate) {
+		if (!(device->metadata.rate_bitmap[rate / 8] & (1 << (rate % 8))))
+			continue;
+
+		if (rate_index == supported_rate_count) {
+			probe_request_data[4 + rate_index] = IE_ID_RATES_EXT;
+			probe_request_data[5 + rate_index] = extended_rate_count;
+		}
+
+		size_t offset = 4 + rate_index;
+		if (rate_index >= supported_rate_count)
+			offset += 2;
+		probe_request_data[offset] = rate;
+		++rate_index;
+	}
+
+	u80211_header_description_t header = {
+		.frame_control = U80211_HEADER_FRAME_CONTROL_SUBTYPE_PROBE_REQUEST << 4,
+		.addresses = {
+			{ .bytes = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff } },
+			device->metadata.mac_address,
+			{ .bytes = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff } },
+		},
+	};
+
+	status = u80211_serialize_header(&header, &descriptor);
+	if (status != U80211_STATUS_SUCCESS) {
+		device->ops->free_tx_buffer(device, &descriptor);
+		return status;
+	}
+
+	return device->ops->transmit(device, &descriptor);
 }

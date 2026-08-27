@@ -6,11 +6,16 @@
 
 typedef struct {
 	int refcount;
-	int channel;
 	u80211_mac_address_t mac_address;
+	uint16_t interval;
+	uint16_t capabilities;
+	uint8_t channel;
+	uint8_t rate_bitmap[16];
+	char ssid[33];
 	u80211_rbtree_t cache_node;
 } u80211_ap_t;
 
+u80211_ap_t *u80211_ap_allocate(const u80211_beacon_data_t *beacon_data);
 void u80211_ap_inactive(u80211_ap_t *ap);
 
 static inline void u80211_ap_hold(u80211_ap_t *ap) {
