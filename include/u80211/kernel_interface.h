@@ -11,6 +11,16 @@ void u80211_kernel_free_mutex(void *mutex);
 void u80211_kernel_acquire_mutex(void *mutex);
 void u80211_kernel_release_mutex(void *mutex);
 
+void *u80211_kernel_allocate_semaphore(unsigned int initial_count);
+void u80211_kernel_free_semaphore(void *semaphore);
+void u80211_kernel_wait_semaphore(void *semaphore);
+void u80211_kernel_signal_semaphore(void *semaphore);
+
+void *u80211_kernel_allocate_spinlock(void);
+void u80211_kernel_free_spinlock(void *spinlock);
+void u80211_kernel_acquire_spinlock(void *spinlock);
+void u80211_kernel_release_spinlock(void *spinlock);
+
 void *u80211_kernel_allocate_rwlock(void);
 void u80211_kernel_free_rwlock(void *rwlock);
 void u80211_kernel_acquire_rwlock_exclusive(void *rwlock);

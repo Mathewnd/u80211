@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include <errno.h>
 #include <pthread.h>
+#include <semaphore.h>
 #include <stdlib.h>
 #include <time.h>
 #include <u80211/kernel_interface.h>
@@ -98,9 +99,6 @@ void *u80211_kernel_allocate_mutex(void) {
 }
 
 void u80211_kernel_free_mutex(void *mutex) {
-	if (mutex == NULL)
-		return;
-
 	pthread_mutex_destroy(mutex);
 	free(mutex);
 }
@@ -111,6 +109,61 @@ void u80211_kernel_acquire_mutex(void *mutex) {
 
 void u80211_kernel_release_mutex(void *mutex) {
 	pthread_mutex_unlock(mutex);
+}
+
+void *u80211_kernel_allocate_semaphore(unsigned int initial_count) {
+	sem_t *semaphore = malloc(sizeof(*semaphore));
+	if (semaphore == NULL)
+		return NULL;
+
+	if (sem_init(semaphore, 0, initial_count) != 0) {
+		free(semaphore);
+		return NULL;
+	}
+
+	return semaphore;
+}
+
+void u80211_kernel_free_semaphore(void *semaphore) {
+	sem_destroy(semaphore);
+	free(semaphore);
+}
+
+void u80211_kernel_wait_semaphore(void *semaphore) {
+	for (;;) {
+		if (sem_wait(semaphore) == 0 || errno != EINTR)
+			return;
+	}
+}
+
+void u80211_kernel_signal_semaphore(void *semaphore) {
+	sem_post(semaphore);
+}
+
+void *u80211_kernel_allocate_spinlock(void) {
+	void *spinlock = malloc(sizeof(pthread_spinlock_t));
+	if (spinlock == NULL)
+		return NULL;
+
+	if (pthread_spin_init(spinlock, PTHREAD_PROCESS_PRIVATE) != 0) {
+		free(spinlock);
+		return NULL;
+	}
+
+	return spinlock;
+}
+
+void u80211_kernel_free_spinlock(void *spinlock) {
+	pthread_spin_destroy(spinlock);
+	free(spinlock);
+}
+
+void u80211_kernel_acquire_spinlock(void *spinlock) {
+	pthread_spin_lock(spinlock);
+}
+
+void u80211_kernel_release_spinlock(void *spinlock) {
+	pthread_spin_unlock(spinlock);
 }
 
 void *u80211_kernel_allocate_rwlock(void) {
@@ -127,9 +180,6 @@ void *u80211_kernel_allocate_rwlock(void) {
 }
 
 void u80211_kernel_free_rwlock(void *rwlock) {
-	if (rwlock == NULL)
-		return;
-
 	pthread_rwlock_destroy(rwlock);
 	free(rwlock);
 }
@@ -200,8 +250,6 @@ void u80211_kernel_enqueue_work(void *opaque_work, u80211_kernel_work_fn_t funct
 
 void u80211_kernel_free_work(void *opaque_work) {
 	kernel_work_t *work = opaque_work;
-	if (work == NULL)
-		return;
 
 	pthread_mutex_lock(&work->mutex);
 	work->stopping = 1;
