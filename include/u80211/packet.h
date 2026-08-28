@@ -66,6 +66,7 @@ typedef struct {
 	char ssid[33];
 } u80211_beacon_data_t;
 
+#define U80211_AUTH_ALGORITHM_OPEN 0
 typedef struct {
 	u80211_mac_address_t address;
 	uint16_t auth_algorithm;

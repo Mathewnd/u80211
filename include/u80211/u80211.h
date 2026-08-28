@@ -6,6 +6,7 @@
 #include <u80211/bss_cache.h>
 #include <u80211/list.h>
 #include <u80211/packet.h>
+#include <u80211/ap.h>
 
 static inline void *u80211_descriptor_allocate_space(u80211_tx_buffer_descriptor_t *descriptor, size_t size) {
 	if (size > descriptor->current_offset)
@@ -45,6 +46,12 @@ struct u80211_device {
 	u80211_list_t scan_waiters;
 
 	bss_cache_t bss_cache;
+
+	void *association_spinlock;
+	void *association_context;
+	u80211_list_t association_waiters;
+	unsigned int association_generation;
+	u80211_ap_t *ap;
 };
 
 static inline int u80211_get_device_state(u80211_device_t *device) {
@@ -66,5 +73,7 @@ void u80211_reset_packet_count(u80211_device_t *device);
 
 int u80211_register_device(const u80211_device_metadata_t *metadata, const u80211_device_ops_t *ops, void *driver_data, u80211_device_t **device_out);
 void u80211_unregister_device(u80211_device_t *device);
+
+int u80211_associate(u80211_device_t *device, u80211_ap_t *ap);
 
 #endif
