@@ -12,10 +12,17 @@ typedef struct {
 	pthread_cond_t condition;
 	int stopping;
 	int pending;
+	int destroy_on_exit;
 	struct timespec deadline;
 	u80211_kernel_work_fn_t function;
 	void *context;
 } kernel_work_t;
+
+static void destroy_work(kernel_work_t *work) {
+	pthread_cond_destroy(&work->condition);
+	pthread_mutex_destroy(&work->mutex);
+	free(work);
+}
 
 static int timespec_compare(const struct timespec *a, const struct timespec *b) {
 	if (a->tv_sec < b->tv_sec)
@@ -73,7 +80,10 @@ static void *work_thread(void *argument) {
 		pthread_mutex_lock(&work->mutex);
 	}
 
+	int destroy_on_exit = work->destroy_on_exit;
 	pthread_mutex_unlock(&work->mutex);
+	if (destroy_on_exit)
+		destroy_work(work);
 	return NULL;
 }
 
@@ -250,16 +260,21 @@ void u80211_kernel_enqueue_work(void *opaque_work, u80211_kernel_work_fn_t funct
 
 void u80211_kernel_free_work(void *opaque_work) {
 	kernel_work_t *work = opaque_work;
+	int destroy_on_exit = pthread_equal(pthread_self(), work->thread);
 
 	pthread_mutex_lock(&work->mutex);
 	work->stopping = 1;
+	work->destroy_on_exit = destroy_on_exit;
 	pthread_cond_signal(&work->condition);
 	pthread_mutex_unlock(&work->mutex);
 
+	if (destroy_on_exit) {
+		pthread_detach(work->thread);
+		return;
+	}
+
 	pthread_join(work->thread, NULL);
-	pthread_cond_destroy(&work->condition);
-	pthread_mutex_destroy(&work->mutex);
-	free(work);
+	destroy_work(work);
 }
 
 void u80211_kernel_receive_callback(void *buffer) {

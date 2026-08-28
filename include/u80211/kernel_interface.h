@@ -33,6 +33,7 @@ typedef void (*u80211_kernel_work_fn_t)(void *context);
 void *u80211_kernel_allocate_work(void);
 // ms == 0 enqueues the work immediatelly. If work is already pending, the new request must be ignored.
 void u80211_kernel_enqueue_work(void *work, u80211_kernel_work_fn_t function, void *context, size_t ms);
+// may be called by the work's callback.
 void u80211_kernel_free_work(void *work);
 
 // buffer has an ethernet header.
