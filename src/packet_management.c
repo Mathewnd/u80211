@@ -2,6 +2,7 @@
 
 #include <u80211/packet.h>
 #include <u80211/scan.h>
+#include <u80211/association.h>
 #include <u80211/status.h>
 #include <u80211/string.h>
 #include <u80211/u80211.h>
@@ -30,14 +31,12 @@ static bool handle_rates(u80211_beacon_data_t *beacon_data, uint8_t *rates, size
 	return true;
 }
 
-static uint16_t deserialize_le16(const void *source) {
-	uint16_t value;
-	u80211_memcpy(&value, source, sizeof(value));
-	return le_to_host(value);
-}
-
 static void process_probe_response(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
 	if (data_size < 12)
+		return;
+
+	if (!u80211_mac_address_equal(&header->addresses[1], &header->addresses[2]) ||
+			!u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address))
 		return;
 
 	u80211_beacon_data_t beacon_data;
@@ -101,13 +100,68 @@ static void process_probe_response(u80211_device_t *device, u80211_header_descri
 	u80211_scan_process_response(device, &beacon_data);
 }
 
+static void process_auth_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
+	if (data_size < 6)
+		return;
+
+	if (!u80211_mac_address_equal(&header->addresses[1], &header->addresses[2]) ||
+			!u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address))
+		return;
+
+	u80211_auth_data_t auth_data;
+	auth_data.address = header->addresses[2];
+	auth_data.auth_algorithm = deserialize_le16(data);
+	auth_data.auth_transaction = deserialize_le16((const void *)((uintptr_t)data + 2));
+	auth_data.status = deserialize_le16((const void *)((uintptr_t)data + 4));
+
+	u80211_association_process_authentication(device, &auth_data);
+}
+
 void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
 	int subtype = U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control);
 
 	switch (subtype) {
 		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_PROBE_RESPONSE:
 			process_probe_response(device, header, data, data_size);
+			break;
+		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_AUTHENTICATION:
+			process_auth_packet(device, header, data, data_size);
+			break;
 	}
+}
+
+int u80211_send_authentication(u80211_device_t *device, u80211_auth_data_t *auth_data) {
+	u80211_tx_buffer_descriptor_t descriptor;
+	int status = device->ops->allocate_tx_buffer(device, MANAGEMENT_HEADER_SIZE + 6, &descriptor);
+	if (status != U80211_STATUS_SUCCESS)
+		return status;
+
+	uint8_t *data = u80211_descriptor_allocate_space(&descriptor, 6);
+	if (data == NULL) {
+		device->ops->free_tx_buffer(device, &descriptor);
+		return U80211_STATUS_NOT_ENOUGH_SPACE;
+	}
+
+	serialize_le16(data, auth_data->auth_algorithm);
+	serialize_le16(data + 2, auth_data->auth_transaction);
+	serialize_le16(data + 4, auth_data->status);
+
+	u80211_header_description_t header = {
+		.frame_control = U80211_HEADER_FRAME_CONTROL_SUBTYPE_AUTHENTICATION << 4,
+		.addresses = {
+			auth_data->address,
+			device->metadata.mac_address,
+			auth_data->address,
+		},
+	};
+
+	status = u80211_serialize_header(&header, &descriptor);
+	if (status != U80211_STATUS_SUCCESS) {
+		device->ops->free_tx_buffer(device, &descriptor);
+		return status;
+	}
+
+	return device->ops->transmit(device, &descriptor);
 }
 
 int u80211_send_probe_request(u80211_device_t *device) {

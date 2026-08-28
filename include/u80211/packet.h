@@ -1,6 +1,7 @@
 #ifndef U80211_PACKET_H
 #define U80211_PACKET_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -15,6 +16,15 @@ typedef struct {
 typedef struct {
 	uint8_t bytes[6];
 } u80211_mac_address_t;
+
+static inline bool u80211_mac_address_equal(const u80211_mac_address_t *a, const u80211_mac_address_t *b) {
+	for (size_t i = 0; i < sizeof(a->bytes); ++i) {
+		if (a->bytes[i] != b->bytes[i])
+			return false;
+	}
+
+	return true;
+}
 
 #define U80211_HEADER_FRAME_CONTROL_GET_VERSION(x) ((x) & 0x3)
 #define U80211_HEADER_FRAME_CONTROL_GET_TYPE(x) (((x) & 0xc) >> 2)
@@ -56,10 +66,18 @@ typedef struct {
 	char ssid[33];
 } u80211_beacon_data_t;
 
+typedef struct {
+	u80211_mac_address_t address;
+	uint16_t auth_algorithm;
+	uint16_t auth_transaction;
+	uint16_t status;
+} u80211_auth_data_t;
+
 int u80211_deserialize_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size);
 int u80211_serialize_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor);
 void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size); // called from an interrupt context
 
 int u80211_send_probe_request(u80211_device_t *device);
+int u80211_send_authentication(u80211_device_t *device, u80211_auth_data_t *auth_data);
 
 #endif

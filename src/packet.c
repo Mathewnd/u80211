@@ -27,17 +27,6 @@ void u80211_reset_packet_count(u80211_device_t *device) {
 	__atomic_store_n(&device->packet_count, 0, __ATOMIC_RELAXED);
 }
 
-static uint16_t deserialize_le16(const void *source) {
-	uint16_t value;
-	u80211_memcpy(&value, source, sizeof(value));
-	return le_to_host(value);
-}
-
-static void serialize_le16(uint8_t *destination, uint16_t value) {
-	uint16_t little_endian_value = host_to_le(value);
-	u80211_memcpy(destination, &little_endian_value, sizeof(little_endian_value));
-}
-
 static int deserialize_management_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size) {
 	if (source_size < 14)
 		return U80211_STATUS_NOT_ENOUGH_SPACE;
