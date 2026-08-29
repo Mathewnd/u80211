@@ -1,6 +1,7 @@
 #include <u80211/u80211.h>
 #include <u80211/kernel_interface.h>
 #include <u80211/status.h>
+#include <u80211/util.h>
 
 #define AUTH_TIMEOUT 5000
 #define ASSOC_TIMEOUT 5000
@@ -14,6 +15,21 @@ typedef struct {
 	u80211_device_t *device;
 	u80211_ap_t *ap; // this keeps a reference, the reference in the device is only incremented only when fully associated
 } u80211_association_context_t;
+
+typedef struct {
+	u80211_list_node_t node;
+	void *semaphore;
+	int result;
+} u80211_association_waiter_t;
+
+static void wake_association_waiters(u80211_device_t *device, int result) {
+	u80211_list_node_t *node;
+	while ((node = u80211_list_pop_front(&device->association_waiters)) != NULL) {
+		u80211_association_waiter_t *waiter = container_of(node, u80211_association_waiter_t, node);
+		waiter->result = result;
+		u80211_kernel_signal_semaphore(waiter->semaphore);
+	}
+}
 
 static void destroy_association_context(u80211_association_context_t *association_context) {
 	u80211_kernel_free_work(association_context->completion_work);
@@ -43,7 +59,8 @@ void u80211_association_process_response(u80211_device_t *device, u80211_associa
 
 	device->association_context = NULL;
 	++device->association_generation;
-	// TODO: wake up waiters
+	device->association_result = association_data->status ? U80211_STATUS_REJECTED : U80211_STATUS_SUCCESS;
+	wake_association_waiters(device, device->association_result);
 
 leave:
 	u80211_kernel_release_spinlock(device->association_spinlock);
@@ -64,7 +81,8 @@ static void association_timeout(void *ctx, int expected_state) {
 		device->ap = NULL;
 		device->association_context = NULL;
 		++device->association_generation;
-		// TODO: wake up waiters
+		device->association_result = U80211_STATUS_TIMED_OUT;
+		wake_association_waiters(device, device->association_result);
 	} else {
 		// already progressed
 		free = false;
@@ -107,10 +125,11 @@ void u80211_association_process_authentication(u80211_device_t *device, u80211_a
 		if (!u80211_set_device_state(device, U80211_DEVICE_STATE_AUTHENTICATING, U80211_DEVICE_STATE_DOWN))
 			goto leave;
 
-		// TODO: wake up waiters with error
 		device->ap = NULL;
 		device->association_context = NULL;
 		++device->association_generation;
+		device->association_result = U80211_STATUS_REJECTED;
+		wake_association_waiters(device, device->association_result);
 	} else {
 		if (!u80211_set_device_state(device, U80211_DEVICE_STATE_AUTHENTICATING, U80211_DEVICE_STATE_ASSOCIATING))
 			goto leave;
@@ -166,6 +185,7 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
 
 	association_context->generation = device->association_generation;
 	device->association_context = association_context;
+	device->association_result = U80211_STATUS_UNKNOWN_ERROR;
 	device->ap = ap;
 	u80211_ap_hold(ap);
 	u80211_kernel_release_spinlock(device->association_spinlock);
@@ -182,4 +202,30 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
 	u80211_kernel_enqueue_work(association_context->auth_timeout_work, auth_timeout, association_context, AUTH_TIMEOUT);
 
 	return 0;
+}
+
+int u80211_wait_for_association_completion(u80211_device_t *device) {
+	void *semaphore = u80211_kernel_allocate_semaphore(0);
+	if (semaphore == NULL)
+		return U80211_STATUS_RETRY;
+
+	u80211_association_waiter_t waiter = {
+		.semaphore = semaphore,
+	};
+
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+	int state = u80211_get_device_state(device);
+	if (state != U80211_DEVICE_STATE_AUTHENTICATING && state != U80211_DEVICE_STATE_ASSOCIATING) {
+		int result = device->association_result;
+		u80211_kernel_release_spinlock(device->association_spinlock);
+		u80211_kernel_free_semaphore(semaphore);
+		return result;
+	}
+
+	u80211_list_push_back(&device->association_waiters, &waiter.node);
+	u80211_kernel_release_spinlock(device->association_spinlock);
+
+	u80211_kernel_wait_semaphore(semaphore);
+	u80211_kernel_free_semaphore(semaphore);
+	return waiter.result;
 }

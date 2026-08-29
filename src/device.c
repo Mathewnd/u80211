@@ -28,6 +28,7 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 	device->association_context = NULL;
 	u80211_list_init(&device->association_waiters);
 	device->association_generation = 0;
+	device->association_result = U80211_STATUS_UNKNOWN_ERROR;
 	device->ap = NULL;
 
 	device->ops = ops;

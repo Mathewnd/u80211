@@ -31,6 +31,18 @@ active_scan_test = executable(
   dependencies: threads,
 )
 
+association_test = executable(
+  'association',
+  files(
+    'programs/association.c',
+    'hwsim.c',
+    'kernel_interface.c',
+  ),
+  include_directories: u80211_include,
+  link_with: u80211_library,
+  dependencies: threads,
+)
+
 hostapd = find_program('hostapd')
 hostapd_cli = find_program('hostapd_cli')
 wpa_supplicant = find_program('wpa_supplicant')
@@ -64,6 +76,22 @@ test(
     files('hostapd.conf.in'),
     files('wpa_supplicant.conf.in'),
     active_scan_test,
+  ],
+  is_parallel: false,
+  timeout: 60,
+)
+
+test(
+  'association',
+  run_with_hostapd,
+  args: [
+    hostapd.full_path(),
+    hostapd_cli.full_path(),
+    wpa_supplicant.full_path(),
+    wpa_cli.full_path(),
+    files('hostapd.conf.in'),
+    files('wpa_supplicant.conf.in'),
+    association_test,
   ],
   is_parallel: false,
   timeout: 60,
