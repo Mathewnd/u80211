@@ -19,6 +19,12 @@ static void destroy_association_context(u80211_association_context_t *associatio
 	u80211_kernel_free(association_context);
 }
 
+void u80211_association_process_response(u80211_device_t *device, u80211_association_response_data_t *association_data) {
+	(void)device;
+	(void)association_data;
+	// TODO: handle the association response
+}
+
 static void auth_completion_work(void *ctx) {
 	u80211_association_context_t *association_context = ctx;
 	u80211_device_t *device = association_context->device;

@@ -15,6 +15,15 @@
 
 #define MANAGEMENT_HEADER_SIZE 24
 #define AUTH_DATA_SIZE 6
+#define ASSOCIATION_REQUEST_FIXED_SIZE 4
+#define ASSOCIATION_RESPONSE_FIXED_SIZE 6
+#define CAPABILITY_ESS 0x0001
+#define CAPABILITY_SHORT_PREAMBLE 0x0020
+#define CAPABILITY_SHORT_SLOT_TIME 0x0400
+// TODO: Only hardcode these capabilities on 2.4 GHz.
+#define ASSOCIATION_CAPABILITIES (CAPABILITY_ESS | CAPABILITY_SHORT_PREAMBLE | CAPABILITY_SHORT_SLOT_TIME)
+// TODO: Revisit the listen interval when power saving is implemented.
+#define ASSOCIATION_LISTEN_INTERVAL 10
 #define MAX_SSID_SIZE 32
 #define MAX_RATE_VALUE 125
 
@@ -190,10 +199,33 @@ static void process_auth_packet(u80211_device_t *device, u80211_header_descripti
 	u80211_association_process_authentication(device, &auth_data);
 }
 
+static void process_association_response(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
+	if (data_size < ASSOCIATION_RESPONSE_FIXED_SIZE)
+		return;
+
+	if (!management_packet_for_device(device, header))
+		return;
+
+	u80211_association_response_data_t association_data;
+	u80211_memset(&association_data, 0, sizeof(association_data));
+	association_data.address = header->addresses[2];
+	association_data.capabilities = deserialize_le16(data);
+	association_data.status = deserialize_le16((const void *)((uintptr_t)data + 2));
+	association_data.association_id = deserialize_le16((const void *)((uintptr_t)data + 4));
+
+	if (!process_information_elements(association_data.rate_bitmap, NULL, NULL, (const void *)((uintptr_t)data + ASSOCIATION_RESPONSE_FIXED_SIZE), data_size - ASSOCIATION_RESPONSE_FIXED_SIZE))
+		return;
+
+	u80211_association_process_response(device, &association_data);
+}
+
 void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
 	int subtype = U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control);
 
 	switch (subtype) {
+		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_ASSOCIATION_RESPONSE:
+			process_association_response(device, header, data, data_size);
+			break;
 		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_PROBE_RESPONSE:
 			process_probe_response(device, header, data, data_size);
 			break;
@@ -231,6 +263,31 @@ int u80211_send_probe_request(u80211_device_t *device) {
 	probe_request_data[0] = IE_ID_SSID;
 	probe_request_data[1] = 0;
 	serialize_rate_information_elements(probe_request_data + 2, device->metadata.rate_bitmap, rate_count);
+
+	return device->ops->transmit(device, &descriptor);
+}
+
+int u80211_send_association_request(u80211_device_t *device) {
+	u80211_ap_t *ap = device->ap;
+	size_t ssid_size = 0;
+	while (ssid_size < MAX_SSID_SIZE && ap->ssid[ssid_size] != '\0')
+		++ssid_size;
+
+	size_t rate_count = count_rates(device->metadata.rate_bitmap);
+	size_t association_request_data_size = ASSOCIATION_REQUEST_FIXED_SIZE + 2 + ssid_size + rate_information_elements_size(rate_count);
+
+	u80211_tx_buffer_descriptor_t descriptor;
+	uint8_t *data;
+	int status = prepare_management_packet(device, &ap->mac_address, U80211_HEADER_FRAME_CONTROL_SUBTYPE_ASSOCIATION_REQUEST, association_request_data_size, &descriptor, &data);
+	if (status != U80211_STATUS_SUCCESS)
+		return status;
+
+	serialize_le16(data, ASSOCIATION_CAPABILITIES);
+	serialize_le16(data + 2, ASSOCIATION_LISTEN_INTERVAL);
+	data[4] = IE_ID_SSID;
+	data[5] = ssid_size;
+	u80211_memcpy(data + 6, ap->ssid, ssid_size);
+	serialize_rate_information_elements(data + 6 + ssid_size, device->metadata.rate_bitmap, rate_count);
 
 	return device->ops->transmit(device, &descriptor);
 }

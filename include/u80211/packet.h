@@ -74,11 +74,20 @@ typedef struct {
 	uint16_t status;
 } u80211_auth_data_t;
 
+typedef struct {
+	u80211_mac_address_t address;
+	uint16_t capabilities;
+	uint16_t status;
+	uint16_t association_id;
+	uint8_t rate_bitmap[16];
+} u80211_association_response_data_t;
+
 int u80211_deserialize_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size);
 int u80211_serialize_header(u80211_header_description_t *header, u80211_tx_buffer_descriptor_t *descriptor);
 void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size); // called from an interrupt context
 
 int u80211_send_probe_request(u80211_device_t *device);
 int u80211_send_authentication(u80211_device_t *device, u80211_auth_data_t *auth_data);
+int u80211_send_association_request(u80211_device_t *device);
 
 #endif
