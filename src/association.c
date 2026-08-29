@@ -23,9 +23,30 @@ static void destroy_association_context(u80211_association_context_t *associatio
 }
 
 void u80211_association_process_response(u80211_device_t *device, u80211_association_response_data_t *association_data) {
-	(void)device;
-	(void)association_data;
-	// TODO: handle the association response
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+
+	u80211_association_context_t *association_context = device->association_context;
+	if (!association_context || !device->ap)
+		goto leave;
+
+	if (!u80211_mac_address_equal(&association_context->ap->mac_address, &association_data->address))
+		goto leave;
+
+	int new_state = association_data->status ? U80211_DEVICE_STATE_DOWN : U80211_DEVICE_STATE_ASSOCIATED;
+	if (!u80211_set_device_state(device, U80211_DEVICE_STATE_ASSOCIATING, new_state))
+		goto leave;
+
+	if (association_data->status)
+		device->ap = NULL;
+	else
+		u80211_ap_hold(device->ap);
+
+	device->association_context = NULL;
+	++device->association_generation;
+	// TODO: wake up waiters
+
+leave:
+	u80211_kernel_release_spinlock(device->association_spinlock);
 }
 
 static void association_timeout(void *ctx, int expected_state) {
