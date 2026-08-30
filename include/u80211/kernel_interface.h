@@ -2,6 +2,7 @@
 #define U80211_KERNEL_INTERFACE_H
 
 #include <stddef.h>
+#include <u80211/u80211.h>
 
 void *u80211_kernel_allocate(size_t size);
 void u80211_kernel_free(void *ptr);
@@ -37,6 +38,6 @@ void u80211_kernel_enqueue_work(void *work, u80211_kernel_work_fn_t function, vo
 void u80211_kernel_free_work(void *work);
 
 // buffer has an ethernet header.
-void u80211_kernel_receive_callback(void *buffer);
+void u80211_kernel_receive_callback(u80211_device_t *device, void *buffer, size_t size);
 
 #endif

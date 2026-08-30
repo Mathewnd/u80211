@@ -16,6 +16,10 @@ void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_
 	switch (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header.frame_control)) {
 		case U80211_HEADER_FRAME_CONTROL_TYPE_MANAGEMENT:
 			u80211_process_management_packet(device, &header, data_start, data_size);
+			break;
+		case U80211_HEADER_FRAME_CONTROL_TYPE_DATA:
+			u80211_process_data_packet(device, &header, data_start, data_size);
+			break;
 	}
 }
 

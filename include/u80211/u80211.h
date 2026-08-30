@@ -66,7 +66,7 @@ static inline bool u80211_set_device_state(u80211_device_t *device, int old_stat
 int u80211_scan(u80211_device_t *device);
 int u80211_wait_for_scan_completion(u80211_device_t *device);
 
-void u80211_process_packet(u80211_device_t *device, const void *packet, size_t packet_size);
+void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_size);
 
 // these are mostly diagnostic and should not be relied upon
 size_t u80211_get_packet_count(u80211_device_t *device);
@@ -77,5 +77,10 @@ void u80211_unregister_device(u80211_device_t *device);
 
 int u80211_associate(u80211_device_t *device, u80211_ap_t *ap);
 int u80211_wait_for_association_completion(u80211_device_t *device);
+
+// allocates an ethernet-sized buffer
+int u80211_allocate_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor);
+// expects an ethernet header
+int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor);
 
 #endif

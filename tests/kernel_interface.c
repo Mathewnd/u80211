@@ -277,6 +277,8 @@ void u80211_kernel_free_work(void *opaque_work) {
 	destroy_work(work);
 }
 
-void u80211_kernel_receive_callback(void *buffer) {
+void u80211_kernel_receive_callback(u80211_device_t *device, void *buffer, size_t size) {
+	(void)device;
 	(void)buffer;
+	(void)size;
 }
