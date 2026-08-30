@@ -4,10 +4,10 @@
 #include <u80211/u80211.h>
 #include <u80211/util.h>
 
-void u80211_process_packet(u80211_device_t *device, const void *packet, size_t packet_size) {
+void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_size) {
 	__atomic_add_fetch(&device->packet_count, 1, __ATOMIC_RELAXED);
 
-	const void *data_start;
+	void *data_start;
 	size_t data_size;
 	u80211_header_description_t header;
 	if (u80211_deserialize_header(packet, packet_size, &header, &data_start, &data_size) != U80211_STATUS_SUCCESS)
@@ -27,7 +27,7 @@ void u80211_reset_packet_count(u80211_device_t *device) {
 	__atomic_store_n(&device->packet_count, 0, __ATOMIC_RELAXED);
 }
 
-static int deserialize_management_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size) {
+static int deserialize_management_header(void *source, size_t source_size, u80211_header_description_t *header, void **data_start, size_t *data_size) {
 	if (source_size < 14)
 		return U80211_STATUS_NOT_ENOUGH_SPACE;
 
@@ -35,12 +35,12 @@ static int deserialize_management_header(const void *source, size_t source_size,
 	u80211_memcpy(&header->addresses[2], (const void *)((uintptr_t)source + 6), 6);
 	header->sequence_control = deserialize_le16((const void *)((uintptr_t)source + 12));
 
-	*data_start = (const void *)((uintptr_t)source + 14);
+	*data_start = (void *)((uintptr_t)source + 14);
 	*data_size = source_size - 14;
 	return U80211_STATUS_SUCCESS;
 }
 
-static int deserialize_control_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size) {
+static int deserialize_control_header(void *source, size_t source_size, u80211_header_description_t *header, void **data_start, size_t *data_size) {
 	(void)source;
 	(void)source_size;
 	(void)header;
@@ -49,7 +49,7 @@ static int deserialize_control_header(const void *source, size_t source_size, u8
 	return U80211_STATUS_UNSUPPORTED;
 }
 
-static int deserialize_data_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size) {
+static int deserialize_data_header(void *source, size_t source_size, u80211_header_description_t *header, void **data_start, size_t *data_size) {
 	int subtype = U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control);
 
 	if (subtype != U80211_HEADER_FRAME_CONTROL_SUBTYPE_DATA && subtype != U80211_HEADER_FRAME_CONTROL_SUBTYPE_NULL_DATA)
@@ -69,12 +69,12 @@ static int deserialize_data_header(const void *source, size_t source_size, u8021
 		header->sequence_control = deserialize_le16((const void *)((uintptr_t)source + 12));
 	}
 
-	*data_start = (const void *)((uintptr_t)source + header_size);
+	*data_start = (void *)((uintptr_t)source + header_size);
 	*data_size = source_size - header_size;
 	return U80211_STATUS_SUCCESS;
 }
 
-int u80211_deserialize_header(const void *source, size_t source_size, u80211_header_description_t *header, const void **data_start, size_t *data_size) {
+int u80211_deserialize_header(void *source, size_t source_size, u80211_header_description_t *header, void **data_start, size_t *data_size) {
 	if (source_size < 10)
 		return U80211_STATUS_NOT_ENOUGH_SPACE;
 
@@ -82,7 +82,7 @@ int u80211_deserialize_header(const void *source, size_t source_size, u80211_hea
 	header->duration_id = deserialize_le16((const void *)((uintptr_t)source + 2));
 	u80211_memcpy(&header->addresses[0], (const void *)((uintptr_t)source + 4), 6);
 
-	const void *next_part = (const void *)((uintptr_t)source + 10);
+	void *next_part = (void *)((uintptr_t)source + 10);
 	size_t next_part_size = source_size - 10;
 
 	switch (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header->frame_control)) {
