@@ -33,6 +33,7 @@ typedef struct {
 #define U80211_DEVICE_STATE_AUTHENTICATING 2
 #define U80211_DEVICE_STATE_ASSOCIATING 3
 #define U80211_DEVICE_STATE_ASSOCIATED 4
+#define U80211_DEVICE_STATE_DEAUTHENTICATING 5
 struct u80211_device {
 	u80211_device_metadata_t metadata;
 	void *driver_data;
@@ -79,6 +80,7 @@ void u80211_unregister_device(u80211_device_t *device);
 
 int u80211_associate(u80211_device_t *device, u80211_ap_t *ap);
 int u80211_wait_for_association_completion(u80211_device_t *device);
+int u80211_disassociate(u80211_device_t *device);
 
 // allocates an ethernet-sized buffer
 int u80211_allocate_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor);

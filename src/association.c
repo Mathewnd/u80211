@@ -5,6 +5,7 @@
 
 #define AUTH_TIMEOUT 5000
 #define ASSOC_TIMEOUT 5000
+#define DEAUTHENTICATION_REASON_LEAVING 3
 
 typedef struct {
 	void *completion_work;
@@ -258,6 +259,50 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
 	u80211_kernel_enqueue_work(association_context->auth_timeout_work, auth_timeout, association_context, AUTH_TIMEOUT);
 
 	return 0;
+}
+
+static int u80211_deauthenticate(u80211_device_t *device, uint16_t reason) {
+	u80211_deauthentication_data_t deauthentication_data = {
+		.reason = reason,
+	};
+
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+
+	if (device->ap == NULL || u80211_get_device_state(device) != U80211_DEVICE_STATE_ASSOCIATED) {
+		// TODO: Support cancelling an authentication or association attempt.
+		u80211_kernel_release_spinlock(device->association_spinlock);
+		return U80211_STATUS_NOT_ASSOCIATED;
+	}
+
+	if (!u80211_set_device_state(device, U80211_DEVICE_STATE_ASSOCIATED, U80211_DEVICE_STATE_DEAUTHENTICATING)) {
+		u80211_kernel_release_spinlock(device->association_spinlock);
+		return U80211_STATUS_NOT_ASSOCIATED;
+	}
+
+	deauthentication_data.address = device->ap->mac_address;
+
+	u80211_kernel_release_spinlock(device->association_spinlock);
+
+	int status = u80211_send_deauthentication(device, &deauthentication_data);
+	u80211_ap_t *disconnected_ap = NULL;
+
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+	if (device->ap != NULL && u80211_get_device_state(device) == U80211_DEVICE_STATE_DEAUTHENTICATING) {
+		disconnected_ap = device->ap;
+		device->ap = NULL;
+		++device->association_generation;
+		u80211_set_device_state(device, U80211_DEVICE_STATE_DEAUTHENTICATING, U80211_DEVICE_STATE_DOWN);
+	}
+	u80211_kernel_release_spinlock(device->association_spinlock);
+
+	if (disconnected_ap != NULL)
+		u80211_ap_release(disconnected_ap);
+
+	return status;
+}
+
+int u80211_disassociate(u80211_device_t *device) {
+	return u80211_deauthenticate(device, DEAUTHENTICATION_REASON_LEAVING);
 }
 
 int u80211_wait_for_association_completion(u80211_device_t *device) {
