@@ -100,6 +100,7 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 
 	u80211_header_description_t header = {
 		.frame_control = (U80211_HEADER_FRAME_CONTROL_TYPE_DATA << 2) | U80211_HEADER_FRAME_CONTROL_TO_DS,
+		.sequence_control = __atomic_fetch_add(&device->tx_sequence_control, 0x10, __ATOMIC_RELAXED),
 		.addresses = {
 			ap->mac_address,
 			source,

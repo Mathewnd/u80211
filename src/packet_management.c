@@ -159,6 +159,7 @@ static int prepare_management_packet(u80211_device_t *device, const u80211_mac_a
 
 	u80211_header_description_t header = {
 		.frame_control = subtype << 4,
+		.sequence_control = __atomic_fetch_add(&device->tx_sequence_control, 0x10, __ATOMIC_RELAXED),
 		.addresses = {
 			*address,
 			device->metadata.mac_address,

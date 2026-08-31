@@ -9,6 +9,7 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 
 	device->metadata = *metadata;
 	device->packet_count = 0;
+	device->tx_sequence_control = 0;
 	device->state = U80211_DEVICE_STATE_DOWN;
 
 	device->scan_spinlock = u80211_kernel_allocate_spinlock();
