@@ -15,16 +15,26 @@ hostapd_template=$5
 wpa_template=$6
 shift 6
 
-interfaces=(sta0 sta1 sta2 ap0 ap1 ap2 ap3)
+interfaces=(sta0 ap0 ap1 ap2 ap3)
 ap_interfaces=(ap0 ap1 ap2 ap3)
 ap_ssids=("Foo University" "My House" "Cat Cafe" "Bar Park")
 ap_channels=(1 1 6 11)
 station_interfaces=(sta1 sta2)
+station_namespaces=(u80211-sta1 u80211-sta2)
 station_ssids=("Foo University" "My House")
 
 for interface in "${interfaces[@]}"; do
 	if [ ! -e "/sys/class/net/$interface" ]; then
 		echo "test setup: interface '$interface' does not exist; run ./prepare_env.sh first" >&2
+		exit 1
+	fi
+done
+
+for index in "${!station_interfaces[@]}"; do
+	interface=${station_interfaces[$index]}
+	namespace=${station_namespaces[$index]}
+	if ! ip -n "$namespace" link show dev "$interface" >/dev/null 2>&1; then
+		echo "test setup: interface '$interface' does not exist in namespace '$namespace'; run ./prepare_env.sh first" >&2
 		exit 1
 	fi
 done
@@ -97,7 +107,8 @@ for index in "${!ap_interfaces[@]}"; do
 			echo "test setup: hostapd on '$interface' exited before becoming ready" >&2
 			exit 1
 		fi
-		if "$hostapd_cli_bin" -p "$hostapd_control" -i "$interface" ping 2>/dev/null | grep -qx PONG; then
+		status=$("$hostapd_cli_bin" -p "$hostapd_control" -i "$interface" status 2>/dev/null || true)
+		if grep -qx 'state=ENABLED' <<< "$status"; then
 			ready=true
 			break
 		fi
@@ -112,6 +123,7 @@ done
 station_pid_offset=${#child_pids[@]}
 for index in "${!station_interfaces[@]}"; do
 	interface=${station_interfaces[$index]}
+	namespace=${station_namespaces[$index]}
 	ssid=${station_ssids[$index]}
 	config_file=$runtime_dir/wpa-$interface.conf
 	log_file=$runtime_dir/wpa-$interface.log
@@ -120,7 +132,8 @@ for index in "${!station_interfaces[@]}"; do
 		-e "s|@CTRL_INTERFACE@|$wpa_control|g" \
 		-e "s|@SSID@|$ssid|g" \
 		"$wpa_template" > "$config_file" || exit 1
-	"$wpa_supplicant_bin" -Dnl80211 -i "$interface" -c "$config_file" \
+	ip netns exec "$namespace" \
+		"$wpa_supplicant_bin" -Dnl80211 -i "$interface" -c "$config_file" \
 		> "$log_file" 2>&1 &
 	child_pids+=("$!")
 	log_files+=("$log_file")
@@ -128,6 +141,7 @@ done
 
 for index in "${!station_interfaces[@]}"; do
 	interface=${station_interfaces[$index]}
+	namespace=${station_namespaces[$index]}
 	ssid=${station_ssids[$index]}
 	pid=${child_pids[$((station_pid_offset + index))]}
 	ready=false
@@ -136,7 +150,8 @@ for index in "${!station_interfaces[@]}"; do
 			echo "test setup: wpa_supplicant on '$interface' exited before association" >&2
 			exit 1
 		fi
-		status=$("$wpa_cli_bin" -p "$wpa_control" -i "$interface" status 2>/dev/null || true)
+		status=$(ip netns exec "$namespace" \
+			"$wpa_cli_bin" -p "$wpa_control" -i "$interface" status 2>/dev/null || true)
 		if grep -qx 'wpa_state=COMPLETED' <<< "$status" \
 				&& grep -Fqx "ssid=$ssid" <<< "$status"; then
 			ready=true

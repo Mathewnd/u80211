@@ -24,21 +24,19 @@ static int validate_scan_results(u80211_device_t *device) {
 	};
 	const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
 	size_t cache_count = u80211_bss_cache_get_count(&device->bss_cache);
-	if (cache_count != expected_count) {
+	bool valid = cache_count == expected_count;
+	if (!valid)
 		fprintf(stderr, "expected %zu access points, found %zu\n", expected_count, cache_count);
-		return 1;
-	}
 
 	u80211_ap_t *aps[sizeof(expected) / sizeof(expected[0])];
 	size_t ap_count = u80211_bss_cache_get_aps(&device->bss_cache, aps, expected_count);
-	if (ap_count != expected_count) {
-		fprintf(stderr, "expected to read %zu access points, read %zu\n", expected_count, ap_count);
+	if (ap_count != cache_count) {
+		fprintf(stderr, "expected to read %zu access points, read %zu\n", cache_count, ap_count);
 		for (size_t i = 0; i < ap_count; ++i)
 			u80211_ap_release(aps[i]);
 		return 1;
 	}
 
-	bool valid = true;
 	for (size_t i = 0; i < ap_count; ++i) {
 		size_t match = expected_count;
 		for (size_t j = 0; j < expected_count; ++j) {

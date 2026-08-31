@@ -59,6 +59,8 @@ static void clear_descriptor(u80211_tx_buffer_descriptor_t *descriptor) {
 }
 
 static int allocate_tx_buffer(u80211_device_t *device, size_t size, u80211_tx_buffer_descriptor_t *descriptor) {
+	(void)device;
+
 	void *data = malloc(size);
 	if (data == NULL)
 		return status_from_errno(ENOMEM);
@@ -70,6 +72,8 @@ static int allocate_tx_buffer(u80211_device_t *device, size_t size, u80211_tx_bu
 }
 
 static int free_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor) {
+	(void)device;
+
 	free(descriptor->data);
 	clear_descriptor(descriptor);
 	return U80211_STATUS_SUCCESS;
@@ -113,10 +117,9 @@ static int transmit(u80211_device_t *device, u80211_tx_buffer_descriptor_t *desc
 
 	if (sent < 0)
 		result = errno;
-	else if (sent != sizeof(radiotap) + vectors[1].iov_len)
+	else if ((size_t)sent != sizeof(radiotap) + vectors[1].iov_len)
 		result = EIO;
 
-consume:
 	free(descriptor->data);
 	clear_descriptor(descriptor);
 	return status_from_errno(result);

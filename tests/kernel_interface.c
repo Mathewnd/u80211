@@ -6,6 +6,8 @@
 #include <time.h>
 #include <u80211/kernel_interface.h>
 
+#include "kernel_interface.h"
+
 typedef struct {
 	pthread_t thread;
 	pthread_mutex_t mutex;
@@ -17,6 +19,17 @@ typedef struct {
 	u80211_kernel_work_fn_t function;
 	void *context;
 } kernel_work_t;
+
+static pthread_mutex_t receive_handler_mutex = PTHREAD_MUTEX_INITIALIZER;
+static receive_handler_t receive_handler;
+static void *receive_handler_context;
+
+void set_receive_handler(receive_handler_t handler, void *context) {
+	pthread_mutex_lock(&receive_handler_mutex);
+	receive_handler = handler;
+	receive_handler_context = context;
+	pthread_mutex_unlock(&receive_handler_mutex);
+}
 
 static void destroy_work(kernel_work_t *work) {
 	pthread_cond_destroy(&work->condition);
@@ -278,7 +291,11 @@ void u80211_kernel_free_work(void *opaque_work) {
 }
 
 void u80211_kernel_receive_callback(u80211_device_t *device, void *buffer, size_t size) {
-	(void)device;
-	(void)buffer;
-	(void)size;
+	pthread_mutex_lock(&receive_handler_mutex);
+	receive_handler_t handler = receive_handler;
+	void *context = receive_handler_context;
+	pthread_mutex_unlock(&receive_handler_mutex);
+
+	if (handler != NULL)
+		handler(device, buffer, size, context);
 }
