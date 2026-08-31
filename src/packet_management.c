@@ -292,6 +292,18 @@ int u80211_send_authentication(u80211_device_t *device, u80211_auth_data_t *auth
 	return device->ops->transmit(device, &descriptor);
 }
 
+int u80211_send_deauthentication(u80211_device_t *device, u80211_deauthentication_data_t *deauthentication_data) {
+	u80211_tx_buffer_descriptor_t descriptor;
+	uint8_t *data;
+	int status = prepare_management_packet(device, &deauthentication_data->address, U80211_HEADER_FRAME_CONTROL_SUBTYPE_DEAUTHENTICATION, REASON_CODE_SIZE, &descriptor, &data);
+	if (status != U80211_STATUS_SUCCESS)
+		return status;
+
+	serialize_le16(data, deauthentication_data->reason);
+
+	return device->ops->transmit(device, &descriptor);
+}
+
 int u80211_send_probe_request(u80211_device_t *device) {
 	size_t rate_count = count_rates(device->metadata.rate_bitmap);
 	size_t probe_request_data_size = 2 + rate_information_elements_size(rate_count);

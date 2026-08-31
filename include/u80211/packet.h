@@ -99,6 +99,7 @@ void u80211_process_data_packet(u80211_device_t *device, u80211_header_descripti
 
 int u80211_send_probe_request(u80211_device_t *device);
 int u80211_send_authentication(u80211_device_t *device, u80211_auth_data_t *auth_data);
+int u80211_send_deauthentication(u80211_device_t *device, u80211_deauthentication_data_t *deauthentication_data);
 int u80211_send_association_request(u80211_device_t *device);
 
 #endif
