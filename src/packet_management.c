@@ -15,6 +15,7 @@
 
 #define MANAGEMENT_HEADER_SIZE 24
 #define AUTH_DATA_SIZE 6
+#define REASON_CODE_SIZE 2
 #define ASSOCIATION_REQUEST_FIXED_SIZE 4
 #define ASSOCIATION_RESPONSE_FIXED_SIZE 6
 #define CAPABILITY_ESS 0x0001
@@ -44,6 +45,14 @@ static bool handle_rates(uint8_t rate_bitmap[16], const uint8_t *rates, size_t c
 
 static bool management_packet_for_device(u80211_device_t *device, u80211_header_description_t *header) {
 	return u80211_mac_address_equal(&header->addresses[1], &header->addresses[2]) && u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address);
+}
+
+static bool management_packet_for_device_or_broadcast(u80211_device_t *device, u80211_header_description_t *header) {
+	const u80211_mac_address_t broadcast_address = { .bytes = { 0xff, 0xff, 0xff, 0xff, 0xff, 0xff } };
+
+	return u80211_mac_address_equal(&header->addresses[1], &header->addresses[2]) &&
+		(u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address) ||
+		 u80211_mac_address_equal(&header->addresses[0], &broadcast_address));
 }
 
 static bool process_information_elements(uint8_t rate_bitmap[16], char *ssid, uint8_t *channel, const void *data, size_t data_size) {
@@ -219,6 +228,34 @@ static void process_association_response(u80211_device_t *device, u80211_header_
 	u80211_association_process_response(device, &association_data);
 }
 
+static void process_deauthentication_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
+	if (data_size < REASON_CODE_SIZE)
+		return;
+
+	if (!management_packet_for_device_or_broadcast(device, header))
+		return;
+
+	u80211_deauthentication_data_t deauthentication_data = {
+		.address = header->addresses[2],
+		.reason = deserialize_le16(data),
+	};
+	u80211_association_process_deauthentication(device, &deauthentication_data);
+}
+
+static void process_disassociation_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
+	if (data_size < REASON_CODE_SIZE)
+		return;
+
+	if (!management_packet_for_device_or_broadcast(device, header))
+		return;
+
+	u80211_disassociation_data_t disassociation_data = {
+		.address = header->addresses[2],
+		.reason = deserialize_le16(data),
+	};
+	u80211_association_process_disassociation(device, &disassociation_data);
+}
+
 void u80211_process_management_packet(u80211_device_t *device, u80211_header_description_t *header, const void *data, size_t data_size) {
 	int subtype = U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control);
 
@@ -231,6 +268,12 @@ void u80211_process_management_packet(u80211_device_t *device, u80211_header_des
 			break;
 		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_AUTHENTICATION:
 			process_auth_packet(device, header, data, data_size);
+			break;
+		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_DEAUTHENTICATION:
+			process_deauthentication_packet(device, header, data, data_size);
+			break;
+		case U80211_HEADER_FRAME_CONTROL_SUBTYPE_DISASSOCIATION:
+			process_disassociation_packet(device, header, data, data_size);
 			break;
 	}
 }

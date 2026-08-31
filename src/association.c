@@ -1,4 +1,4 @@
-#include <u80211/u80211.h>
+#include <u80211/association.h>
 #include <u80211/kernel_interface.h>
 #include <u80211/status.h>
 #include <u80211/util.h>
@@ -36,6 +36,16 @@ static void destroy_association_context(u80211_association_context_t *associatio
 	u80211_kernel_free_work(association_context->auth_timeout_work);
 	u80211_kernel_free_work(association_context->assoc_timeout_work);
 	u80211_kernel_free(association_context);
+}
+
+void u80211_association_process_deauthentication(u80211_device_t *device, u80211_deauthentication_data_t *deauthentication_data) {
+	(void)device;
+	(void)deauthentication_data;
+}
+
+void u80211_association_process_disassociation(u80211_device_t *device, u80211_disassociation_data_t *disassociation_data) {
+	(void)device;
+	(void)disassociation_data;
 }
 
 void u80211_association_process_response(u80211_device_t *device, u80211_association_response_data_t *association_data) {

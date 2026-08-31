@@ -6,5 +6,7 @@
 
 void u80211_association_process_authentication(u80211_device_t *device, u80211_auth_data_t *auth_data); // called from interrupt context
 void u80211_association_process_response(u80211_device_t *device, u80211_association_response_data_t *association_data); // called from interrupt context
+void u80211_association_process_deauthentication(u80211_device_t *device, u80211_deauthentication_data_t *deauthentication_data); // called from interrupt context
+void u80211_association_process_disassociation(u80211_device_t *device, u80211_disassociation_data_t *disassociation_data); // called from interrupt context
 
 #endif
