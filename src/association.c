@@ -38,14 +38,58 @@ static void destroy_association_context(u80211_association_context_t *associatio
 	u80211_kernel_free(association_context);
 }
 
+static void release_disconnected_ap(void *ctx) {
+	u80211_device_t *device = ctx;
+
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+	u80211_ap_t *ap = device->disconnected_ap;
+	device->disconnected_ap = NULL;
+	u80211_kernel_release_spinlock(device->association_spinlock);
+
+	if (ap != NULL)
+		u80211_ap_release(ap);
+}
+
+static void association_process_teardown(u80211_device_t *device, const u80211_mac_address_t *address, bool deauthentication) {
+	bool cleanup_needed = false;
+
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+
+	if (!device->ap || !u80211_mac_address_equal(&device->ap->mac_address, address))
+		goto leave;
+
+	int state = u80211_get_device_state(device);
+	bool attempt_in_progress = state == U80211_DEVICE_STATE_AUTHENTICATING || state == U80211_DEVICE_STATE_ASSOCIATING;
+	if (state != U80211_DEVICE_STATE_ASSOCIATED && (!deauthentication || !attempt_in_progress))
+		goto leave;
+
+	if (!u80211_set_device_state(device, state, U80211_DEVICE_STATE_DOWN))
+		goto leave;
+
+	if (attempt_in_progress) {
+		device->association_context = NULL;
+		device->association_result = U80211_STATUS_REJECTED;
+		wake_association_waiters(device, device->association_result);
+	} else {
+		device->disconnected_ap = device->ap;
+		cleanup_needed = true;
+	}
+
+	device->ap = NULL;
+	++device->association_generation;
+
+leave:
+	u80211_kernel_release_spinlock(device->association_spinlock);
+	if (cleanup_needed)
+		u80211_kernel_enqueue_work(device->association_cleanup_work, release_disconnected_ap, device, 0);
+}
+
 void u80211_association_process_deauthentication(u80211_device_t *device, u80211_deauthentication_data_t *deauthentication_data) {
-	(void)device;
-	(void)deauthentication_data;
+	association_process_teardown(device, &deauthentication_data->address, true);
 }
 
 void u80211_association_process_disassociation(u80211_device_t *device, u80211_disassociation_data_t *disassociation_data) {
-	(void)device;
-	(void)disassociation_data;
+	association_process_teardown(device, &disassociation_data->address, false);
 }
 
 void u80211_association_process_response(u80211_device_t *device, u80211_association_response_data_t *association_data) {
@@ -157,6 +201,8 @@ static void auth_timeout(void *ctx) {
 }
 
 int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
+	release_disconnected_ap(device);
+
 	u80211_association_context_t *association_context = u80211_kernel_allocate(sizeof(u80211_association_context_t));
 	if (association_context == NULL)
 		return U80211_STATUS_ENOMEM;

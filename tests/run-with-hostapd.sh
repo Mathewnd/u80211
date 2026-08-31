@@ -165,5 +165,7 @@ for index in "${!station_interfaces[@]}"; do
 	fi
 done
 
-"$@"
+U80211_HOSTAPD_CLI="$hostapd_cli_bin" \
+	U80211_HOSTAPD_CONTROL="$hostapd_control" \
+	"$@"
 exit $?

@@ -109,6 +109,26 @@ test(
   timeout: 60,
 )
 
+foreach cleanup_action : ['deauthenticate', 'disassociate']
+  test(
+    'association-' + cleanup_action,
+    run_with_hostapd,
+    args: [
+      hostapd.full_path(),
+      hostapd_cli.full_path(),
+      wpa_supplicant.full_path(),
+      wpa_cli.full_path(),
+      files('hostapd.conf.in'),
+      files('wpa_supplicant.conf.in'),
+      association_test,
+      cleanup_action,
+      'ap2',
+    ],
+    is_parallel: false,
+    timeout: 60,
+  )
+endforeach
+
 test(
   'arp',
   run_with_hostapd,

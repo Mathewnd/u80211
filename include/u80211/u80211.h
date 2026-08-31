@@ -49,10 +49,12 @@ struct u80211_device {
 
 	void *association_spinlock;
 	void *association_context;
+	void *association_cleanup_work;
 	u80211_list_t association_waiters;
 	unsigned int association_generation;
 	int association_result;
 	u80211_ap_t *ap;
+	u80211_ap_t *disconnected_ap;
 };
 
 static inline int u80211_get_device_state(u80211_device_t *device) {
