@@ -80,7 +80,8 @@ int u80211_wait_for_association_completion(u80211_device_t *device);
 
 // allocates an ethernet-sized buffer
 int u80211_allocate_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor);
-// expects an ethernet header
+// expects an ethernet header. descriptor **must** be a buffer returned by u80211_allocate_tx_buffer.
+// consumes the descriptor regardless of the returned status.
 int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor);
 
 #endif
