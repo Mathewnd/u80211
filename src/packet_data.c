@@ -25,7 +25,7 @@ void u80211_process_data_packet(u80211_device_t *device, u80211_header_descripti
 	// doing this in-place is safe due to the LLC/SNAP header + 802.11 header being much 
 	// larger than the ethernet header.
 	data = (void *)((uintptr_t)data + LLCSNAP_SIZE - ETHERNET_HEADER_SIZE);
-	data_size = data_size + LLCSNAP_SIZE - ETHERNET_HEADER_SIZE;
+	data_size = data_size + ETHERNET_HEADER_SIZE - LLCSNAP_SIZE;
 
 	u80211_mac_address_t *destination;
 	u80211_mac_address_t *source;
