@@ -39,6 +39,23 @@ static void destroy_association_context(u80211_association_context_t *associatio
 	u80211_kernel_free(association_context);
 }
 
+bool u80211_association_is_duplicate(u80211_device_t *device, const u80211_header_description_t *header, int expected_state) {
+	bool duplicate = false;
+	u80211_kernel_acquire_spinlock(device->association_spinlock);
+	bool active_stream = u80211_get_device_state(device) == expected_state && device->ap != NULL &&
+		u80211_mac_address_equal(&device->ap->mac_address, &header->addresses[1]);
+	if (active_stream) {
+		duplicate = (header->frame_control & U80211_HEADER_FRAME_CONTROL_RETRY) &&
+			device->received_sequence_control_valid && device->received_sequence_control == header->sequence_control;
+		if (!duplicate) {
+			device->received_sequence_control = header->sequence_control;
+			device->received_sequence_control_valid = true;
+		}
+	}
+	u80211_kernel_release_spinlock(device->association_spinlock);
+	return duplicate;
+}
+
 static void release_disconnected_ap(void *ctx) {
 	u80211_device_t *device = ctx;
 
@@ -244,6 +261,8 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
 	device->association_context = association_context;
 	device->association_result = U80211_STATUS_UNKNOWN_ERROR;
 	device->ap = ap;
+	device->received_sequence_control = 0;
+	device->received_sequence_control_valid = false;
 	u80211_ap_hold(ap);
 	u80211_kernel_release_spinlock(device->association_spinlock);
 

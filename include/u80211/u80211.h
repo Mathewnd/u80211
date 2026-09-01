@@ -42,6 +42,8 @@ struct u80211_device {
 	int state;
 	size_t packet_count;
 	uint16_t tx_sequence_control;
+	uint16_t received_sequence_control;
+	bool received_sequence_control_valid;
 
 	void *scan_spinlock;
 	void *scan_context;

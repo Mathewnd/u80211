@@ -206,6 +206,9 @@ static void process_auth_packet(u80211_device_t *device, u80211_header_descripti
 	auth_data.auth_transaction = deserialize_le16((const void *)((uintptr_t)data + 2));
 	auth_data.status = deserialize_le16((const void *)((uintptr_t)data + 4));
 
+	if (u80211_association_is_duplicate(device, header, U80211_DEVICE_STATE_AUTHENTICATING))
+		return;
+
 	u80211_association_process_authentication(device, &auth_data);
 }
 
@@ -224,6 +227,9 @@ static void process_association_response(u80211_device_t *device, u80211_header_
 	association_data.association_id = deserialize_le16((const void *)((uintptr_t)data + 4));
 
 	if (!process_information_elements(association_data.rate_bitmap, NULL, NULL, (const void *)((uintptr_t)data + ASSOCIATION_RESPONSE_FIXED_SIZE), data_size - ASSOCIATION_RESPONSE_FIXED_SIZE))
+		return;
+
+	if (u80211_association_is_duplicate(device, header, U80211_DEVICE_STATE_ASSOCIATING))
 		return;
 
 	u80211_association_process_response(device, &association_data);

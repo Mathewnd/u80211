@@ -1,8 +1,13 @@
+#include <u80211/association.h>
 #include <u80211/packet.h>
 #include <u80211/status.h>
 #include <u80211/string.h>
 #include <u80211/u80211.h>
 #include <u80211/util.h>
+
+static bool data_packet_for_device(u80211_device_t *device, const u80211_header_description_t *header) {
+	return u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address) || (header->addresses[0].bytes[0] & 1);
+}
 
 void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_size) {
 	__atomic_add_fetch(&device->packet_count, 1, __ATOMIC_RELAXED);
@@ -18,6 +23,9 @@ void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_
 			u80211_process_management_packet(device, &header, data_start, data_size);
 			break;
 		case U80211_HEADER_FRAME_CONTROL_TYPE_DATA:
+			if (data_packet_for_device(device, &header) &&
+				u80211_association_is_duplicate(device, &header, U80211_DEVICE_STATE_ASSOCIATED))
+				return;
 			u80211_process_data_packet(device, &header, data_start, data_size);
 			break;
 	}
