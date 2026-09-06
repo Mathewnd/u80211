@@ -17,6 +17,7 @@ u80211_library = static_library(
     'src/packet_data.c',
     'src/packet_management.c',
     'src/string.c',
+    'src/ringbuffer.c',
     'src/rbtree.c',
     'src/bss_cache.c',
     'src/ap.c',
