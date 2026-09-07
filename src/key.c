@@ -12,6 +12,7 @@ typedef struct {
 	u80211_mac_address_t peer;
 	uint32_t flags;
 	uint8_t rx_sequence[SEQUENCE_SIZE];
+	uint8_t tx_sequence[SEQUENCE_SIZE];
 } u80211_key_metadata_t;
 
 static bool key_identity_equal(const u80211_key_metadata_t *metadata, uint8_t index, const u80211_mac_address_t *peer, uint32_t flags) {
@@ -49,6 +50,7 @@ int u80211_set_key(u80211_device_t *device, const u80211_key_t *key) {
 	metadata->peer = key->peer;
 	metadata->flags = key->flags;
 	u80211_memset(metadata->rx_sequence, 0, sizeof(metadata->rx_sequence));
+	u80211_memset(metadata->tx_sequence, 0, sizeof(metadata->tx_sequence));
 	if (key->rx_seq != NULL && key->rx_seq_len == sizeof(metadata->rx_sequence))
 		u80211_memcpy(metadata->rx_sequence, key->rx_seq, sizeof(metadata->rx_sequence));
 
@@ -160,6 +162,41 @@ bool u80211_key_update_rx_sequence(u80211_device_t *device, const u80211_header_
 	if (valid)
 		u80211_memcpy(metadata->rx_sequence, sequence, sequence_size);
 
+	u80211_kernel_release_spinlock(device->key_spinlock);
+	return valid;
+}
+
+static bool increment_sequence(uint8_t *sequence, size_t size) {
+	// find where to increment
+	size_t carry_end = 0;
+	while (carry_end < size && sequence[carry_end] == UINT8_MAX)
+		carry_end++;
+
+	// can't increase sequence
+	if (carry_end == size)
+		return false;
+
+	u80211_memset(sequence, 0, carry_end);
+	sequence[carry_end]++;
+	return true;
+}
+
+bool u80211_key_next_tx_sequence(u80211_device_t *device, const u80211_header_description_t *header, uint8_t index, u80211_cipher_t cipher, uint8_t *sequence, size_t sequence_size) {
+	if (sequence_size != SEQUENCE_SIZE)
+		return false;
+
+	u80211_kernel_acquire_spinlock(device->key_spinlock);
+	u80211_key_metadata_t *metadata = select_key(device, header);
+	bool valid = false;
+	if (metadata == NULL || metadata->index != index || metadata->cipher != cipher)
+		goto unlock;
+	if (!increment_sequence(metadata->tx_sequence, sequence_size))
+		goto unlock;
+
+	u80211_memcpy(sequence, metadata->tx_sequence, sequence_size);
+	valid = true;
+
+unlock:
 	u80211_kernel_release_spinlock(device->key_spinlock);
 	return valid;
 }

@@ -7,6 +7,9 @@
 #define ETHERNET_MAX_FRAME_SIZE 1514
 #define LLCSNAP_SIZE 8
 #define TX_BUFFER_HEADROOM 64
+#define CCMP_HEADER_SIZE 8
+#define CCMP_EXT_IV 0x20
+#define SEQUENCE_SIZE 6
 
 // this is the expected LLC/SNAP header for our use-case. it is then followed by a big-endian 16-bit ethertype.
 const uint8_t byte_header[6] = {0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00};
@@ -109,12 +112,53 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 	};
 	u80211_ap_release(ap);
 
+	int key = u80211_select_key(device, &header);
+	if (key >= 0) {
+		int cipher = u80211_select_cipher(device, &header);
+		switch (cipher) {
+			case U80211_CIPHER_CCMP: {
+				// ccmp header has two bits for key selection
+				if (key > 3) {
+					device->ops->free_tx_buffer(device, descriptor);
+					return U80211_STATUS_NOT_PERMITTED;
+				}
+
+				uint8_t *ccmp_header = u80211_descriptor_allocate_space(descriptor, CCMP_HEADER_SIZE);
+				if (ccmp_header == NULL) {
+					device->ops->free_tx_buffer(device, descriptor);
+					return U80211_STATUS_NOT_ENOUGH_SPACE;
+				}
+
+				uint8_t sequence[SEQUENCE_SIZE];
+				if (!u80211_key_next_tx_sequence(device, &header, key, U80211_CIPHER_CCMP, sequence, sizeof(sequence))) {
+					device->ops->free_tx_buffer(device, descriptor);
+					return U80211_STATUS_NOT_PERMITTED;
+				}
+
+				// TODO: other hardware might provide more complete cipher handling, including the CCMP header
+				ccmp_header[0] = sequence[0];
+				ccmp_header[1] = sequence[1];
+				ccmp_header[2] = 0;
+				ccmp_header[3] = CCMP_EXT_IV | (uint8_t)key << 6;
+				ccmp_header[4] = sequence[2];
+				ccmp_header[5] = sequence[3];
+				ccmp_header[6] = sequence[4];
+				ccmp_header[7] = sequence[5];
+				header.frame_control |= U80211_HEADER_FRAME_CONTROL_PROTECTED_FRAME;
+				break;
+			}
+			default:
+				device->ops->free_tx_buffer(device, descriptor);
+				return U80211_STATUS_UNSUPPORTED;
+		}
+	}
+
 	int status = u80211_serialize_header(&header, descriptor);
 	if (status != U80211_STATUS_SUCCESS) {
 		device->ops->free_tx_buffer(device, descriptor);
 		return status;
 	}
 
-	const u80211_transmit_options_t options = { .key = u80211_select_key(device, &header) };
+	const u80211_transmit_options_t options = { .key = key };
 	return device->ops->transmit(device, descriptor, &options);
 }
