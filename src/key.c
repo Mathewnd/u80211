@@ -92,3 +92,26 @@ int u80211_del_key(u80211_device_t *device, uint8_t index, const u80211_mac_addr
 		u80211_kernel_free(removed_metadata);
 	return U80211_STATUS_SUCCESS;
 }
+
+int u80211_select_key(u80211_device_t *device, const u80211_header_description_t *header) {
+	bool tx = u80211_mac_address_equal(&header->addresses[1], &device->metadata.mac_address);
+	bool group = header->addresses[0].bytes[0] & 1;
+	uint32_t direction_flag = tx ? U80211_KEY_TX : U80211_KEY_RX;
+	uint32_t type_flag = group ? U80211_KEY_GROUP : U80211_KEY_PAIRWISE;
+	const u80211_mac_address_t *peer = tx ? &header->addresses[0] : &header->addresses[1];
+	int index = -1;
+
+	u80211_kernel_acquire_spinlock(device->key_spinlock);
+	u80211_list_for_each(&device->keys, node) {
+		u80211_key_metadata_t *metadata = container_of(node, u80211_key_metadata_t, node);
+		if (!(metadata->flags & direction_flag) || !(metadata->flags & type_flag))
+			continue;
+		if (!group && !u80211_mac_address_equal(&metadata->peer, peer))
+			continue;
+
+		index = metadata->index;
+		break;
+	}
+	u80211_kernel_release_spinlock(device->key_spinlock);
+	return index;
+}
