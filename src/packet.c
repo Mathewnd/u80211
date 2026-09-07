@@ -5,6 +5,11 @@
 #include <u80211/u80211.h>
 #include <u80211/util.h>
 
+#define CCMP_HEADER_SIZE 8
+#define CCMP_MIC_SIZE 8
+#define CCMP_EXT_IV 0x20
+#define SEQUENCE_SIZE 6
+
 static bool data_packet_for_device(u80211_device_t *device, const u80211_header_description_t *header) {
 	return u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address) || (header->addresses[0].bytes[0] & 1);
 }
@@ -17,6 +22,35 @@ void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_
 	u80211_header_description_t header;
 	if (u80211_deserialize_header(packet, packet_size, &header, &data_start, &data_size) != U80211_STATUS_SUCCESS)
 		return;
+
+	// encrypted packets contain an additional header that we need to handle
+	// TODO: this might be handled by future hardware, so this needs to be a flag in the device metadata
+	if (header.frame_control & U80211_HEADER_FRAME_CONTROL_PROTECTED_FRAME) {
+		switch (u80211_select_cipher(device, &header)) {
+			case U80211_CIPHER_CCMP: {
+				if (data_size < CCMP_HEADER_SIZE + CCMP_MIC_SIZE)
+					return;
+
+				const uint8_t *ccmp_header = data_start;
+				if (!(ccmp_header[3] & CCMP_EXT_IV))
+					return;
+
+				const uint8_t sequence[SEQUENCE_SIZE] = {
+					ccmp_header[0], ccmp_header[1], ccmp_header[4],
+					ccmp_header[5], ccmp_header[6], ccmp_header[7],
+				};
+
+				if (!u80211_key_update_rx_sequence(device, &header, U80211_CIPHER_CCMP, sequence, sizeof(sequence)))
+					return;
+
+				data_start = (uint8_t *)data_start + CCMP_HEADER_SIZE;
+				data_size -= CCMP_HEADER_SIZE + CCMP_MIC_SIZE;
+				break;
+			}
+			default:
+				return;
+		}
+	}
 
 	switch (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header.frame_control)) {
 		case U80211_HEADER_FRAME_CONTROL_TYPE_MANAGEMENT:

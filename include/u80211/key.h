@@ -33,5 +33,7 @@ typedef struct {
 int u80211_set_key(u80211_device_t *device, const u80211_key_t *key);
 int u80211_del_key(u80211_device_t *device, uint8_t index, const u80211_mac_address_t *peer, uint32_t flags);
 int u80211_select_key(u80211_device_t *device, const u80211_header_description_t *header);
+int u80211_select_cipher(u80211_device_t *device, const u80211_header_description_t *header);
+bool u80211_key_update_rx_sequence(u80211_device_t *device, const u80211_header_description_t *header, u80211_cipher_t cipher, const uint8_t *sequence, size_t sequence_size);
 
 #endif

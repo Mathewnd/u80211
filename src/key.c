@@ -3,11 +3,15 @@
 #include <u80211/u80211.h>
 #include <u80211/util.h>
 
+#define SEQUENCE_SIZE 6
+
 typedef struct {
 	u80211_list_node_t node;
+	u80211_cipher_t cipher;
 	uint8_t index;
 	u80211_mac_address_t peer;
 	uint32_t flags;
+	uint8_t rx_sequence[SEQUENCE_SIZE];
 } u80211_key_metadata_t;
 
 static bool key_identity_equal(const u80211_key_metadata_t *metadata, uint8_t index, const u80211_mac_address_t *peer, uint32_t flags) {
@@ -41,8 +45,12 @@ int u80211_set_key(u80211_device_t *device, const u80211_key_t *key) {
 		return U80211_STATUS_ENOMEM;
 
 	metadata->index = key->index;
+	metadata->cipher = key->cipher;
 	metadata->peer = key->peer;
 	metadata->flags = key->flags;
+	u80211_memset(metadata->rx_sequence, 0, sizeof(metadata->rx_sequence));
+	if (key->rx_seq != NULL && key->rx_seq_len == sizeof(metadata->rx_sequence))
+		u80211_memcpy(metadata->rx_sequence, key->rx_seq, sizeof(metadata->rx_sequence));
 
 	int status = device->ops->set_key(device, key);
 	if (status != U80211_STATUS_SUCCESS) {
@@ -93,15 +101,14 @@ int u80211_del_key(u80211_device_t *device, uint8_t index, const u80211_mac_addr
 	return U80211_STATUS_SUCCESS;
 }
 
-int u80211_select_key(u80211_device_t *device, const u80211_header_description_t *header) {
+// expect key spinlock to be locked
+static u80211_key_metadata_t *select_key(u80211_device_t *device, const u80211_header_description_t *header) {
 	bool tx = u80211_mac_address_equal(&header->addresses[1], &device->metadata.mac_address);
 	bool group = header->addresses[0].bytes[0] & 1;
 	uint32_t direction_flag = tx ? U80211_KEY_TX : U80211_KEY_RX;
 	uint32_t type_flag = group ? U80211_KEY_GROUP : U80211_KEY_PAIRWISE;
 	const u80211_mac_address_t *peer = tx ? &header->addresses[0] : &header->addresses[1];
-	int index = -1;
 
-	u80211_kernel_acquire_spinlock(device->key_spinlock);
 	u80211_list_for_each(&device->keys, node) {
 		u80211_key_metadata_t *metadata = container_of(node, u80211_key_metadata_t, node);
 		if (!(metadata->flags & direction_flag) || !(metadata->flags & type_flag))
@@ -109,9 +116,50 @@ int u80211_select_key(u80211_device_t *device, const u80211_header_description_t
 		if (!group && !u80211_mac_address_equal(&metadata->peer, peer))
 			continue;
 
-		index = metadata->index;
-		break;
+		return metadata;
 	}
+	return NULL;
+}
+
+int u80211_select_key(u80211_device_t *device, const u80211_header_description_t *header) {
+	u80211_kernel_acquire_spinlock(device->key_spinlock);
+	u80211_key_metadata_t *metadata = select_key(device, header);
+	int index = metadata == NULL ? -1 : metadata->index;
 	u80211_kernel_release_spinlock(device->key_spinlock);
 	return index;
+}
+
+int u80211_select_cipher(u80211_device_t *device, const u80211_header_description_t *header) {
+	u80211_kernel_acquire_spinlock(device->key_spinlock);
+
+	u80211_key_metadata_t *metadata = select_key(device, header);
+	int cipher = -1;
+	if (metadata)
+		cipher = metadata->cipher;
+
+	u80211_kernel_release_spinlock(device->key_spinlock);
+	return cipher;
+}
+
+static bool sequence_is_newer(const uint8_t *sequence, const uint8_t *previous, size_t size) {
+	for (size_t i = size; i != 0; --i) {
+		if (sequence[i - 1] != previous[i - 1])
+			return sequence[i - 1] > previous[i - 1];
+	}
+
+	return false;
+}
+
+bool u80211_key_update_rx_sequence(u80211_device_t *device, const u80211_header_description_t *header, u80211_cipher_t cipher, const uint8_t *sequence, size_t sequence_size) {
+	if (sequence_size != SEQUENCE_SIZE)
+		return false;
+
+	u80211_kernel_acquire_spinlock(device->key_spinlock);
+	u80211_key_metadata_t *metadata = select_key(device, header);
+	bool valid = metadata != NULL && metadata->cipher == cipher && sequence_is_newer(sequence, metadata->rx_sequence, sequence_size);
+	if (valid)
+		u80211_memcpy(metadata->rx_sequence, sequence, sequence_size);
+
+	u80211_kernel_release_spinlock(device->key_spinlock);
+	return valid;
 }
