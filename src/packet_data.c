@@ -115,5 +115,6 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 		return status;
 	}
 
-	return device->ops->transmit(device, descriptor);
+	const u80211_transmit_options_t options = { .key = -1 };
+	return device->ops->transmit(device, descriptor, &options);
 }

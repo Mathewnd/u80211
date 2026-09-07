@@ -14,6 +14,10 @@ typedef struct {
 } u80211_tx_buffer_descriptor_t;
 
 typedef struct {
+	int key;
+} u80211_transmit_options_t;
+
+typedef struct {
 	uint8_t bytes[6];
 } u80211_mac_address_t;
 

@@ -79,7 +79,8 @@ static int free_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t
 	return U80211_STATUS_SUCCESS;
 }
 
-static int transmit(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor) {
+static int transmit(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor, const u80211_transmit_options_t *options) {
+	(void)options;
 	int result = 0;
 
 	hwsim_device_t *hwsim = device->driver_data;
