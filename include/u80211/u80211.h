@@ -81,7 +81,7 @@ void u80211_reset_packet_count(u80211_device_t *device);
 int u80211_register_device(const u80211_device_metadata_t *metadata, const u80211_device_ops_t *ops, void *driver_data, u80211_device_t **device_out);
 void u80211_unregister_device(u80211_device_t *device);
 
-int u80211_associate(u80211_device_t *device, u80211_ap_t *ap);
+int u80211_associate(u80211_device_t *device, u80211_ap_t *ap, const void *information_elements, size_t information_elements_size);
 int u80211_wait_for_association_completion(u80211_device_t *device);
 int u80211_disassociate(u80211_device_t *device);
 

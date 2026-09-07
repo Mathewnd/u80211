@@ -6,6 +6,8 @@
 #define AUTH_TIMEOUT 5000
 #define ASSOC_TIMEOUT 5000
 #define DEAUTHENTICATION_REASON_LEAVING 3
+// if more space is needed, this can be changed
+#define ASSOCIATION_INFORMATION_ELEMENTS_MAX_SIZE 1024
 
 typedef struct {
 	void *completion_work;
@@ -15,6 +17,8 @@ typedef struct {
 	unsigned int timeouts_in_flight;
 	u80211_device_t *device;
 	u80211_ap_t *ap; // this keeps a reference, the reference in the device is only incremented only when fully associated
+	void *information_elements;
+	size_t information_elements_size;
 } u80211_association_context_t;
 
 typedef struct {
@@ -36,6 +40,8 @@ static void destroy_association_context(u80211_association_context_t *associatio
 	u80211_kernel_free_work(association_context->completion_work);
 	u80211_kernel_free_work(association_context->auth_timeout_work);
 	u80211_kernel_free_work(association_context->assoc_timeout_work);
+	if (association_context->information_elements != NULL)
+		u80211_kernel_free(association_context->information_elements);
 	u80211_kernel_free(association_context);
 }
 
@@ -176,7 +182,7 @@ static void auth_completion_work(void *ctx) {
 	u80211_association_context_t *association_context = ctx;
 	u80211_device_t *device = association_context->device;
 
-	u80211_send_association_request(device);
+	u80211_send_association_request(device, association_context->information_elements, association_context->information_elements_size);
 	__atomic_add_fetch(&association_context->timeouts_in_flight, 1, __ATOMIC_RELAXED);
 	u80211_kernel_enqueue_work(association_context->assoc_timeout_work, assoc_timeout, association_context, ASSOC_TIMEOUT);
 }
@@ -218,7 +224,10 @@ static void auth_timeout(void *ctx) {
 	association_timeout(ctx, U80211_DEVICE_STATE_AUTHENTICATING);
 }
 
-int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
+int u80211_associate(u80211_device_t *device, u80211_ap_t *ap, const void *information_elements, size_t information_elements_size) {
+	if (information_elements_size > ASSOCIATION_INFORMATION_ELEMENTS_MAX_SIZE)
+		return U80211_STATUS_NOT_ENOUGH_SPACE;
+
 	release_disconnected_ap(device);
 
 	u80211_association_context_t *association_context = u80211_kernel_allocate(sizeof(u80211_association_context_t));
@@ -244,6 +253,18 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap) {
 		u80211_kernel_free_work(association_context->completion_work);
 		u80211_kernel_free(association_context);
 		return U80211_STATUS_ENOMEM;
+	}
+
+	association_context->information_elements = NULL;
+	association_context->information_elements_size = information_elements_size;
+	if (information_elements_size != 0) {
+		association_context->information_elements = u80211_kernel_allocate(information_elements_size);
+		if (association_context->information_elements == NULL) {
+			destroy_association_context(association_context);
+			return U80211_STATUS_ENOMEM;
+		}
+
+		u80211_memcpy(association_context->information_elements, information_elements, information_elements_size);
 	}
 
 	association_context->device = device;

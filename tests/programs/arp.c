@@ -188,7 +188,7 @@ int main(void) {
 		goto close_device;
 	}
 
-	status = u80211_associate(device, foo_university);
+	status = u80211_associate(device, foo_university, NULL, 0);
 	u80211_ap_release(foo_university);
 	if (status != U80211_STATUS_SUCCESS) {
 		fprintf(stderr, "could not start association: status %d\n", status);

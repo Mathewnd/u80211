@@ -336,14 +336,15 @@ int u80211_send_probe_request(u80211_device_t *device) {
 	return device->ops->transmit(device, &descriptor);
 }
 
-int u80211_send_association_request(u80211_device_t *device) {
+int u80211_send_association_request(u80211_device_t *device, const void *information_elements, size_t information_elements_size) {
 	u80211_ap_t *ap = device->ap;
 	size_t ssid_size = 0;
 	while (ssid_size < MAX_SSID_SIZE && ap->ssid[ssid_size] != '\0')
 		++ssid_size;
 
 	size_t rate_count = count_rates(device->metadata.rate_bitmap);
-	size_t association_request_data_size = ASSOCIATION_REQUEST_FIXED_SIZE + 2 + ssid_size + rate_information_elements_size(rate_count);
+	size_t generated_data_size = ASSOCIATION_REQUEST_FIXED_SIZE + 2 + ssid_size + rate_information_elements_size(rate_count);
+	size_t association_request_data_size = generated_data_size + information_elements_size;
 
 	u80211_tx_buffer_descriptor_t descriptor;
 	uint8_t *data;
@@ -356,7 +357,9 @@ int u80211_send_association_request(u80211_device_t *device) {
 	data[4] = IE_ID_SSID;
 	data[5] = ssid_size;
 	u80211_memcpy(data + 6, ap->ssid, ssid_size);
-	serialize_rate_information_elements(data + 6 + ssid_size, device->metadata.rate_bitmap, rate_count);
+	size_t rate_information_size = serialize_rate_information_elements(data + 6 + ssid_size, device->metadata.rate_bitmap, rate_count);
+	if (information_elements_size != 0)
+		u80211_memcpy(data + 6 + ssid_size + rate_information_size, information_elements, information_elements_size);
 
 	return device->ops->transmit(device, &descriptor);
 }

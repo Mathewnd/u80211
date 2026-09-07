@@ -221,7 +221,7 @@ int main(int argc, char **argv) {
 	}
 	u80211_mac_address_t cat_cafe_bssid = cat_cafe->mac_address;
 
-	status = u80211_associate(device, cat_cafe);
+	status = u80211_associate(device, cat_cafe, NULL, 0);
 	u80211_ap_release(cat_cafe);
 	if (status != U80211_STATUS_SUCCESS) {
 		fprintf(stderr, "could not start association: status %d\n", status);
