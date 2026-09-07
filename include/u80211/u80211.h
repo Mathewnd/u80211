@@ -7,6 +7,7 @@
 #include <u80211/list.h>
 #include <u80211/packet.h>
 #include <u80211/ap.h>
+#include <u80211/key.h>
 
 static inline void *u80211_descriptor_allocate_space(u80211_tx_buffer_descriptor_t *descriptor, size_t size) {
 	if (size > descriptor->current_offset)
@@ -21,6 +22,8 @@ typedef struct {
 	int (*free_tx_buffer)(u80211_device_t *device, u80211_tx_buffer_descriptor_t *buffer_descriptor);
 	int (*transmit)(u80211_device_t *device, u80211_tx_buffer_descriptor_t *buffer_descriptor);
 	int (*set_channel)(u80211_device_t *device, int channel);
+	int (*set_key)(u80211_device_t *device, const u80211_key_t *key);
+	int (*del_key)(u80211_device_t *device, uint8_t index, const u80211_mac_address_t *peer, uint32_t flags);
 } u80211_device_ops_t;
 
 typedef struct {
