@@ -3,6 +3,7 @@
 #include <u80211/kernel_interface.h>
 #include <u80211/bss_cache.h>
 #include <u80211/regulatory_database.h>
+#include <u80211/ringbuffer.h>
 #include <u80211/scan.h>
 #include <u80211/status.h>
 #include <u80211/string.h>
@@ -11,12 +12,12 @@
 
 #define WAIT_MS 75
 #define BUFFER_COUNT 64
+#define BUFFER_SIZE (BUFFER_COUNT * sizeof(u80211_beacon_data_t))
 
 typedef struct {
-	u80211_beacon_data_t buffer[BUFFER_COUNT];
+	u80211_ringbuffer_t buffer;
 	u80211_device_t *device;
 	bool receiving;
-	size_t received;
 	int current_channel;
 	void *work;
 } u80211_scan_state_t;
@@ -36,6 +37,7 @@ static void wake_scan_waiters(u80211_device_t *device) {
 
 static void destroy_scan_state(u80211_scan_state_t *scan_state) {
 	u80211_kernel_free_work(scan_state->work);
+	u80211_ringbuffer_destroy(&scan_state->buffer);
 	u80211_kernel_free(scan_state);
 }
 
@@ -52,19 +54,22 @@ static void complete_scan(u80211_scan_state_t *scan_state) {
 	destroy_scan_state(scan_state);
 }
 
-void u80211_scan_process_response(u80211_device_t *device, const u80211_beacon_data_t *beacon_data) {
+void u80211_scan_process_response(u80211_device_t *device, u80211_beacon_data_t *beacon_data) {
 	u80211_kernel_acquire_spinlock(device->scan_spinlock);
 	u80211_scan_state_t *scan_state = device->scan_context;
 
-	if (scan_state == NULL || !scan_state->receiving || scan_state->received >= BUFFER_COUNT) {
+	if (scan_state == NULL || !scan_state->receiving || U80211_RINGBUFFER_FREE_SPACE(&scan_state->buffer) < sizeof(*beacon_data)) {
 		u80211_kernel_release_spinlock(device->scan_spinlock);
 		return;
 	}
 
-	size_t slot = scan_state->received++;
-	scan_state->buffer[slot] = *beacon_data;
-	if (scan_state->buffer[slot].channel == 0)
-		scan_state->buffer[slot].channel = scan_state->current_channel;
+	if (beacon_data->channel == 0)
+		beacon_data->channel = scan_state->current_channel;
+
+	if (u80211_ringbuffer_write(&scan_state->buffer, beacon_data, sizeof(*beacon_data)) != sizeof(*beacon_data)) {
+		u80211_kernel_release_spinlock(device->scan_spinlock);
+		return;
+	}
 
 	u80211_kernel_release_spinlock(device->scan_spinlock);
 }
@@ -100,16 +105,17 @@ static void scan_work(void *ctx) {
 
 	u80211_kernel_acquire_spinlock(device->scan_spinlock);
 	scan_state->receiving = false;
-	size_t received = scan_state->received;
-	scan_state->received = 0;
 	u80211_kernel_release_spinlock(device->scan_spinlock);
 
-	for (size_t i = 0; i < received; ++i) {
-		u80211_beacon_data_t *beacon_data = &scan_state->buffer[i];
-		if (beacon_data->channel != scan_state->current_channel || !valid_bssid(&beacon_data->mac_address))
+	while (U80211_RINGBUFFER_DATA_COUNT(&scan_state->buffer) >= sizeof(u80211_beacon_data_t)) {
+		u80211_beacon_data_t beacon_data;
+		if (u80211_ringbuffer_read(&scan_state->buffer, &beacon_data, sizeof(beacon_data)) != sizeof(beacon_data))
+			break;
+
+		if (beacon_data.channel != scan_state->current_channel || !valid_bssid(&beacon_data.mac_address))
 			continue;
 
-		u80211_ap_t *ap = u80211_ap_allocate(beacon_data);
+		u80211_ap_t *ap = u80211_ap_allocate(&beacon_data);
 		if (ap == NULL)
 			continue;
 
@@ -143,13 +149,19 @@ int u80211_scan(u80211_device_t *device) {
 	if (scan_state == NULL)
 		return U80211_STATUS_ENOMEM;
 
+	int status = u80211_ringbuffer_init(&scan_state->buffer, BUFFER_SIZE);
+	if (status != U80211_STATUS_SUCCESS) {
+		u80211_kernel_free(scan_state);
+		return status;
+	}
+
 	scan_state->work = u80211_kernel_allocate_work();
 	if (scan_state->work == NULL) {
+		u80211_ringbuffer_destroy(&scan_state->buffer);
 		u80211_kernel_free(scan_state);
 		return U80211_STATUS_ENOMEM;
 	}
 
-	scan_state->received = 0;
 	scan_state->receiving = false;
 	scan_state->device = device;
 	scan_state->current_channel = next_channel(0);

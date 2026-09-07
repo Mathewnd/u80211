@@ -3,6 +3,6 @@
 
 #include <u80211/packet.h>
 
-void u80211_scan_process_response(u80211_device_t *device, const u80211_beacon_data_t *beacon_data);
+void u80211_scan_process_response(u80211_device_t *device, u80211_beacon_data_t *beacon_data);
 
 #endif
