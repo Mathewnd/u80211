@@ -64,6 +64,8 @@ typedef struct {
 	uint8_t channel;
 	uint8_t rate_bitmap[16];
 	char ssid[33];
+	const uint8_t *rsn;
+	size_t rsn_size;
 } u80211_beacon_data_t;
 
 #define U80211_AUTH_ALGORITHM_OPEN 0

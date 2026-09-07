@@ -12,10 +12,12 @@
 
 #define WAIT_MS 75
 #define BUFFER_COUNT 64
-#define BUFFER_SIZE (BUFFER_COUNT * sizeof(u80211_beacon_data_t))
+#define MAX_RSN_SIZE UINT8_MAX
+#define BUFFER_SIZE (BUFFER_COUNT * (sizeof(u80211_beacon_data_t) + MAX_RSN_SIZE))
 
 typedef struct {
 	u80211_ringbuffer_t buffer;
+	uint8_t rsn[MAX_RSN_SIZE]; // use this as a small scratch space
 	u80211_device_t *device;
 	bool receiving;
 	int current_channel;
@@ -58,7 +60,13 @@ void u80211_scan_process_response(u80211_device_t *device, u80211_beacon_data_t 
 	u80211_kernel_acquire_spinlock(device->scan_spinlock);
 	u80211_scan_state_t *scan_state = device->scan_context;
 
-	if (scan_state == NULL || !scan_state->receiving || U80211_RINGBUFFER_FREE_SPACE(&scan_state->buffer) < sizeof(*beacon_data)) {
+	if (scan_state == NULL || !scan_state->receiving || beacon_data->rsn_size > MAX_RSN_SIZE) {
+		u80211_kernel_release_spinlock(device->scan_spinlock);
+		return;
+	}
+
+	size_t record_size = sizeof(*beacon_data) + beacon_data->rsn_size;
+	if (U80211_RINGBUFFER_FREE_SPACE(&scan_state->buffer) < record_size) {
 		u80211_kernel_release_spinlock(device->scan_spinlock);
 		return;
 	}
@@ -66,10 +74,8 @@ void u80211_scan_process_response(u80211_device_t *device, u80211_beacon_data_t 
 	if (beacon_data->channel == 0)
 		beacon_data->channel = scan_state->current_channel;
 
-	if (u80211_ringbuffer_write(&scan_state->buffer, beacon_data, sizeof(*beacon_data)) != sizeof(*beacon_data)) {
-		u80211_kernel_release_spinlock(device->scan_spinlock);
-		return;
-	}
+	u80211_ringbuffer_write(&scan_state->buffer, beacon_data, sizeof(*beacon_data));
+	u80211_ringbuffer_write(&scan_state->buffer, beacon_data->rsn, beacon_data->rsn_size);
 
 	u80211_kernel_release_spinlock(device->scan_spinlock);
 }
@@ -111,6 +117,10 @@ static void scan_work(void *ctx) {
 		u80211_beacon_data_t beacon_data;
 		if (u80211_ringbuffer_read(&scan_state->buffer, &beacon_data, sizeof(beacon_data)) != sizeof(beacon_data))
 			break;
+
+		if (u80211_ringbuffer_read(&scan_state->buffer, scan_state->rsn, beacon_data.rsn_size) != beacon_data.rsn_size)
+			break;
+		beacon_data.rsn = beacon_data.rsn_size == 0 ? NULL : scan_state->rsn;
 
 		if (beacon_data.channel != scan_state->current_channel || !valid_bssid(&beacon_data.mac_address))
 			continue;

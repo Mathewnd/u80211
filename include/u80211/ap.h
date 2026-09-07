@@ -12,6 +12,8 @@ typedef struct {
 	uint8_t channel;
 	uint8_t rate_bitmap[16];
 	char ssid[33];
+	uint8_t *rsn;
+	size_t rsn_size;
 	u80211_rbtree_t cache_node;
 } u80211_ap_t;
 

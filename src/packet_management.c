@@ -11,6 +11,7 @@
 #define IE_ID_SSID 0
 #define IE_ID_RATES 1
 #define IE_ID_CHANNEL 3
+#define IE_ID_RSN 48
 #define IE_ID_RATES_EXT 50
 
 #define MANAGEMENT_HEADER_SIZE 24
@@ -55,7 +56,7 @@ static bool management_packet_for_device_or_broadcast(u80211_device_t *device, u
 		 u80211_mac_address_equal(&header->addresses[0], &broadcast_address));
 }
 
-static bool process_information_elements(uint8_t rate_bitmap[16], char *ssid, uint8_t *channel, const void *data, size_t data_size) {
+static bool process_information_elements(uint8_t rate_bitmap[16], char *ssid, uint8_t *channel, const uint8_t **rsn, size_t *rsn_size, const void *data, size_t data_size) {
 	const uint8_t *bytes = data;
 	size_t offset = 0;
 	while (offset < data_size) {
@@ -93,6 +94,12 @@ static bool process_information_elements(uint8_t rate_bitmap[16], char *ssid, ui
 			case IE_ID_RATES_EXT:
 				if (!handle_rates(rate_bitmap, bytes + offset, size))
 					return false;
+				break;
+			case IE_ID_RSN:
+				if (rsn != NULL && rsn_size != NULL) {
+					*rsn = bytes + offset;
+					*rsn_size = size;
+				}
 				break;
 		}
 
@@ -187,7 +194,7 @@ static void process_probe_response(u80211_device_t *device, u80211_header_descri
 	beacon_data.capabilities = deserialize_le16((const void *)((uintptr_t)data + 10));
 	beacon_data.mac_address = header->addresses[2];
 
-	if (!process_information_elements(beacon_data.rate_bitmap, beacon_data.ssid, &beacon_data.channel, (const void *)((uintptr_t)data + 12), data_size - 12))
+	if (!process_information_elements(beacon_data.rate_bitmap, beacon_data.ssid, &beacon_data.channel, &beacon_data.rsn, &beacon_data.rsn_size, (const void *)((uintptr_t)data + 12), data_size - 12))
 		return;
 
 	u80211_scan_process_response(device, &beacon_data);
@@ -226,7 +233,7 @@ static void process_association_response(u80211_device_t *device, u80211_header_
 	association_data.status = deserialize_le16((const void *)((uintptr_t)data + 2));
 	association_data.association_id = deserialize_le16((const void *)((uintptr_t)data + 4));
 
-	if (!process_information_elements(association_data.rate_bitmap, NULL, NULL, (const void *)((uintptr_t)data + ASSOCIATION_RESPONSE_FIXED_SIZE), data_size - ASSOCIATION_RESPONSE_FIXED_SIZE))
+	if (!process_information_elements(association_data.rate_bitmap, NULL, NULL, NULL, NULL, (const void *)((uintptr_t)data + ASSOCIATION_RESPONSE_FIXED_SIZE), data_size - ASSOCIATION_RESPONSE_FIXED_SIZE))
 		return;
 
 	if (u80211_association_is_duplicate(device, header, U80211_DEVICE_STATE_ASSOCIATING))
