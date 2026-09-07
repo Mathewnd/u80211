@@ -2,6 +2,9 @@
 #include <u80211/kernel_interface.h>
 #include <u80211/u80211.h>
 
+int u80211_key_state_init(u80211_device_t *device);
+void u80211_key_state_deinit(u80211_device_t *device);
+
 int u80211_register_device(const u80211_device_metadata_t *metadata, const u80211_device_ops_t *ops, void *driver_data, u80211_device_t **device_out) {
 	u80211_device_t *device = u80211_kernel_allocate(sizeof(*device));
 	if (device == NULL)
@@ -13,9 +16,15 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 	device->received_sequence_control = 0;
 	device->received_sequence_control_valid = false;
 	device->state = U80211_DEVICE_STATE_DOWN;
+	int status = u80211_key_state_init(device);
+	if (status != U80211_STATUS_SUCCESS) {
+		u80211_kernel_free(device);
+		return status;
+	}
 
 	device->scan_spinlock = u80211_kernel_allocate_spinlock();
 	if (device->scan_spinlock == NULL) {
+		u80211_key_state_deinit(device);
 		u80211_kernel_free(device);
 		return U80211_STATUS_ENOMEM;
 	}
@@ -25,6 +34,7 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 	device->association_spinlock = u80211_kernel_allocate_spinlock();
 	if (device->association_spinlock == NULL) {
 		u80211_kernel_free_spinlock(device->scan_spinlock);
+		u80211_key_state_deinit(device);
 		u80211_kernel_free(device);
 		return U80211_STATUS_ENOMEM;
 	}
@@ -32,6 +42,7 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 	if (device->association_cleanup_work == NULL) {
 		u80211_kernel_free_spinlock(device->association_spinlock);
 		u80211_kernel_free_spinlock(device->scan_spinlock);
+		u80211_key_state_deinit(device);
 		u80211_kernel_free(device);
 		return U80211_STATUS_ENOMEM;
 	}
@@ -45,11 +56,12 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 	device->ops = ops;
 	device->driver_data = driver_data;
 
-	int status = u80211_bss_cache_init(&device->bss_cache);
+	status = u80211_bss_cache_init(&device->bss_cache);
 	if (status != U80211_STATUS_SUCCESS) {
 		u80211_kernel_free_work(device->association_cleanup_work);
 		u80211_kernel_free_spinlock(device->association_spinlock);
 		u80211_kernel_free_spinlock(device->scan_spinlock);
+		u80211_key_state_deinit(device);
 		u80211_kernel_free(device);
 		return status;
 	}
@@ -59,6 +71,7 @@ int u80211_register_device(const u80211_device_metadata_t *metadata, const u8021
 }
 
 void u80211_unregister_device(u80211_device_t *device) {
+	u80211_key_state_deinit(device);
 	u80211_kernel_free_work(device->association_cleanup_work);
 	if (device->disconnected_ap != NULL)
 		u80211_ap_release(device->disconnected_ap);

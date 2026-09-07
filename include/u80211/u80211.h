@@ -47,6 +47,8 @@ struct u80211_device {
 	uint16_t tx_sequence_control;
 	uint16_t received_sequence_control;
 	bool received_sequence_control_valid;
+	void *key_spinlock;
+	u80211_list_t keys;
 
 	void *scan_spinlock;
 	void *scan_context;
