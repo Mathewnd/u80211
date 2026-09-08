@@ -13,7 +13,15 @@ typedef struct {
 	uint32_t flags;
 	uint8_t rx_sequence[SEQUENCE_SIZE];
 	uint8_t tx_sequence[SEQUENCE_SIZE];
+	size_t key_len;
+	uint8_t key[];
 } u80211_key_metadata_t;
+
+static void destroy_key_metadata(u80211_key_metadata_t *metadata) {
+	// TODO: proper memset for zeroing crypto data
+	u80211_memset(metadata, 0, sizeof(*metadata) + metadata->key_len);
+	u80211_kernel_free(metadata);
+}
 
 static bool key_identity_equal(const u80211_key_metadata_t *metadata, uint8_t index, const u80211_mac_address_t *peer, uint32_t flags) {
 	return metadata->index == index && metadata->flags == flags && u80211_mac_address_equal(&metadata->peer, peer);
@@ -31,7 +39,7 @@ int u80211_key_state_init(u80211_device_t *device) {
 void u80211_key_state_deinit(u80211_device_t *device) {
 	u80211_list_node_t *node;
 	while ((node = u80211_list_pop_front(&device->keys)) != NULL)
-		u80211_kernel_free(container_of(node, u80211_key_metadata_t, node));
+		destroy_key_metadata(container_of(node, u80211_key_metadata_t, node));
 
 	u80211_kernel_free_spinlock(device->key_spinlock);
 	device->key_spinlock = NULL;
@@ -41,7 +49,10 @@ int u80211_set_key(u80211_device_t *device, const u80211_key_t *key) {
 	if (device->ops->set_key == NULL)
 		return U80211_STATUS_UNSUPPORTED;
 
-	u80211_key_metadata_t *metadata = u80211_kernel_allocate(sizeof(*metadata));
+	if ((key->key == NULL && key->key_len != 0) || key->key_len > SIZE_MAX - sizeof(u80211_key_metadata_t))
+		return U80211_STATUS_NOT_PERMITTED;
+
+	u80211_key_metadata_t *metadata = u80211_kernel_allocate(sizeof(*metadata) + key->key_len);
 	if (metadata == NULL)
 		return U80211_STATUS_ENOMEM;
 
@@ -49,14 +60,20 @@ int u80211_set_key(u80211_device_t *device, const u80211_key_t *key) {
 	metadata->cipher = key->cipher;
 	metadata->peer = key->peer;
 	metadata->flags = key->flags;
+	metadata->key_len = key->key_len;
+
 	u80211_memset(metadata->rx_sequence, 0, sizeof(metadata->rx_sequence));
 	u80211_memset(metadata->tx_sequence, 0, sizeof(metadata->tx_sequence));
+
 	if (key->rx_seq != NULL && key->rx_seq_len == sizeof(metadata->rx_sequence))
 		u80211_memcpy(metadata->rx_sequence, key->rx_seq, sizeof(metadata->rx_sequence));
 
+	if (key->key_len != 0)
+		u80211_memcpy(metadata->key, key->key, key->key_len);
+
 	int status = device->ops->set_key(device, key);
 	if (status != U80211_STATUS_SUCCESS) {
-		u80211_kernel_free(metadata);
+		destroy_key_metadata(metadata);
 		return status;
 	}
 
@@ -74,7 +91,7 @@ int u80211_set_key(u80211_device_t *device, const u80211_key_t *key) {
 	u80211_kernel_release_spinlock(device->key_spinlock);
 
 	if (old_metadata != NULL)
-		u80211_kernel_free(old_metadata);
+		destroy_key_metadata(old_metadata);
 	return U80211_STATUS_SUCCESS;
 }
 
@@ -99,7 +116,7 @@ int u80211_del_key(u80211_device_t *device, uint8_t index, const u80211_mac_addr
 	u80211_kernel_release_spinlock(device->key_spinlock);
 
 	if (removed_metadata != NULL)
-		u80211_kernel_free(removed_metadata);
+		destroy_key_metadata(removed_metadata);
 	return U80211_STATUS_SUCCESS;
 }
 
