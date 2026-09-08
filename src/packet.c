@@ -8,6 +8,10 @@
 #define CCMP_HEADER_SIZE 8
 #define CCMP_MIC_SIZE 8
 #define CCMP_EXT_IV 0x20
+#define TKIP_HEADER_SIZE 8
+#define TKIP_MIC_SIZE 8
+#define TKIP_ICV_SIZE 4
+#define TKIP_EXT_IV 0x20
 #define SEQUENCE_SIZE 6
 
 static bool deserialize_cipher_key_index(const void *data, size_t data_size, uint8_t *index) {
@@ -21,6 +25,85 @@ static bool deserialize_cipher_key_index(const void *data, size_t data_size, uin
 
 static bool data_packet_for_device(u80211_device_t *device, const u80211_header_description_t *header) {
 	return u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address) || (header->addresses[0].bytes[0] & 1);
+}
+
+static void data_packet_addresses(const u80211_header_description_t *header, const u80211_mac_address_t **destination, const u80211_mac_address_t **source) {
+	bool to_ds = header->frame_control & U80211_HEADER_FRAME_CONTROL_TO_DS;
+	bool from_ds = header->frame_control & U80211_HEADER_FRAME_CONTROL_FROM_DS;
+
+	if (to_ds) {
+		*destination = &header->addresses[2];
+		*source = from_ds ? &header->addresses[3] : &header->addresses[1];
+	} else {
+		*destination = &header->addresses[0];
+		*source = from_ds ? &header->addresses[2] : &header->addresses[1];
+	}
+}
+
+static bool process_ccmp_rx(u80211_device_t *device, const u80211_header_description_t *header, uint8_t key_index, void **data_start, size_t *data_size) {
+	if (*data_size < CCMP_HEADER_SIZE + CCMP_MIC_SIZE)
+		return false;
+
+	const uint8_t *ccmp_header = *data_start;
+	if (!(ccmp_header[3] & CCMP_EXT_IV))
+		return false;
+
+	const uint8_t sequence[SEQUENCE_SIZE] = {
+		ccmp_header[0], ccmp_header[1], ccmp_header[4],
+		ccmp_header[5], ccmp_header[6], ccmp_header[7],
+	};
+
+	if (!u80211_key_update_rx_sequence(device, header, key_index, U80211_CIPHER_CCMP, sequence, sizeof(sequence)))
+		return false;
+
+	*data_start = (uint8_t *)*data_start + CCMP_HEADER_SIZE;
+	*data_size -= CCMP_HEADER_SIZE + CCMP_MIC_SIZE;
+	return true;
+}
+
+static bool process_tkip_rx(u80211_device_t *device, const u80211_header_description_t *header, uint8_t key_index, void **data_start, size_t *data_size) {
+	// TODO: support qos data frames and use their tid as the michael priority
+	if (U80211_HEADER_FRAME_CONTROL_GET_TYPE(header->frame_control) != U80211_HEADER_FRAME_CONTROL_TYPE_DATA)
+		return false;
+	
+	if (U80211_HEADER_FRAME_CONTROL_GET_SUBTYPE(header->frame_control) != U80211_HEADER_FRAME_CONTROL_SUBTYPE_DATA)
+		return false;
+
+	if (*data_size < TKIP_HEADER_SIZE + TKIP_MIC_SIZE + TKIP_ICV_SIZE)
+		return false;
+
+	const uint8_t *tkip_header = *data_start;
+	if (!(tkip_header[3] & TKIP_EXT_IV))
+		return false;
+	if (tkip_header[1] != ((tkip_header[0] | 0x20) & 0x7f))
+		return false;
+
+	const uint8_t sequence[SEQUENCE_SIZE] = {
+		tkip_header[2], tkip_header[0], tkip_header[4],
+		tkip_header[5], tkip_header[6], tkip_header[7],
+	};
+
+	const uint8_t *payload = tkip_header + TKIP_HEADER_SIZE;
+	size_t payload_size = *data_size - TKIP_HEADER_SIZE - TKIP_MIC_SIZE - TKIP_ICV_SIZE;
+	const uint8_t *mic = payload + payload_size;
+
+	u80211_tkip_rx_validation_t validation = {
+		.header = header,
+		.key_index = key_index,
+		.sequence = sequence,
+		.priority = 0,
+		.data = payload,
+		.data_size = payload_size,
+		.mic = mic,
+	};
+	data_packet_addresses(header, &validation.destination, &validation.source);
+
+	if (!u80211_key_validate_tkip_rx(device, &validation))
+		return false;
+
+	*data_start = (void *)payload;
+	*data_size = payload_size;
+	return true;
 }
 
 void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_size) {
@@ -40,26 +123,14 @@ void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_
 			return;
 
 		switch (u80211_select_cipher_by_index(device, &header, key_index)) {
-			case U80211_CIPHER_CCMP: {
-				if (data_size < CCMP_HEADER_SIZE + CCMP_MIC_SIZE)
+			case U80211_CIPHER_CCMP:
+				if (!process_ccmp_rx(device, &header, key_index, &data_start, &data_size))
 					return;
-
-				const uint8_t *ccmp_header = data_start;
-				if (!(ccmp_header[3] & CCMP_EXT_IV))
-					return;
-
-				const uint8_t sequence[SEQUENCE_SIZE] = {
-					ccmp_header[0], ccmp_header[1], ccmp_header[4],
-					ccmp_header[5], ccmp_header[6], ccmp_header[7],
-				};
-
-				if (!u80211_key_update_rx_sequence(device, &header, key_index, U80211_CIPHER_CCMP, sequence, sizeof(sequence)))
-					return;
-
-				data_start = (uint8_t *)data_start + CCMP_HEADER_SIZE;
-				data_size -= CCMP_HEADER_SIZE + CCMP_MIC_SIZE;
 				break;
-			}
+			case U80211_CIPHER_TKIP:
+				if (!process_tkip_rx(device, &header, key_index, &data_start, &data_size))
+					return;
+				break;
 			default:
 				return;
 		}
