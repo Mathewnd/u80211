@@ -10,6 +10,15 @@
 #define CCMP_EXT_IV 0x20
 #define SEQUENCE_SIZE 6
 
+static bool deserialize_cipher_key_index(const void *data, size_t data_size, uint8_t *index) {
+	// all currently supported 802.11 cipher headers store the key id in bits 6-7 of byte 3
+	if (data_size < 4)
+		return false;
+
+	*index = ((const uint8_t *)data)[3] >> 6;
+	return true;
+}
+
 static bool data_packet_for_device(u80211_device_t *device, const u80211_header_description_t *header) {
 	return u80211_mac_address_equal(&header->addresses[0], &device->metadata.mac_address) || (header->addresses[0].bytes[0] & 1);
 }
@@ -26,7 +35,11 @@ void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_
 	// encrypted packets contain an additional header that we need to handle
 	// TODO: this might be handled by future hardware, so this needs to be a flag in the device metadata
 	if (header.frame_control & U80211_HEADER_FRAME_CONTROL_PROTECTED_FRAME) {
-		switch (u80211_select_cipher(device, &header)) {
+		uint8_t key_index;
+		if (!deserialize_cipher_key_index(data_start, data_size, &key_index))
+			return;
+
+		switch (u80211_select_cipher_by_index(device, &header, key_index)) {
 			case U80211_CIPHER_CCMP: {
 				if (data_size < CCMP_HEADER_SIZE + CCMP_MIC_SIZE)
 					return;
@@ -40,7 +53,7 @@ void u80211_process_packet(u80211_device_t *device, void *packet, size_t packet_
 					ccmp_header[5], ccmp_header[6], ccmp_header[7],
 				};
 
-				if (!u80211_key_update_rx_sequence(device, &header, U80211_CIPHER_CCMP, sequence, sizeof(sequence)))
+				if (!u80211_key_update_rx_sequence(device, &header, key_index, U80211_CIPHER_CCMP, sequence, sizeof(sequence)))
 					return;
 
 				data_start = (uint8_t *)data_start + CCMP_HEADER_SIZE;
