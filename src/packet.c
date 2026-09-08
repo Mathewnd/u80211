@@ -78,27 +78,25 @@ static bool process_tkip_rx(u80211_device_t *device, const u80211_header_descrip
 	if (tkip_header[1] != ((tkip_header[0] | 0x20) & 0x7f))
 		return false;
 
-	const uint8_t sequence[SEQUENCE_SIZE] = {
-		tkip_header[2], tkip_header[0], tkip_header[4],
-		tkip_header[5], tkip_header[6], tkip_header[7],
-	};
-
 	const uint8_t *payload = tkip_header + TKIP_HEADER_SIZE;
 	size_t payload_size = *data_size - TKIP_HEADER_SIZE - TKIP_MIC_SIZE - TKIP_ICV_SIZE;
 	const uint8_t *mic = payload + payload_size;
 
-	u80211_tkip_rx_validation_t validation = {
+	u80211_tkip_data_t tkip_data = {
 		.header = header,
 		.key_index = key_index,
-		.sequence = sequence,
 		.priority = 0,
 		.data = payload,
 		.data_size = payload_size,
-		.mic = mic,
+		.sequence = {
+			tkip_header[2], tkip_header[0], tkip_header[4],
+			tkip_header[5], tkip_header[6], tkip_header[7],
+		},
 	};
-	data_packet_addresses(header, &validation.destination, &validation.source);
+	u80211_memcpy(tkip_data.mic, mic, sizeof(tkip_data.mic));
+	data_packet_addresses(header, &tkip_data.destination, &tkip_data.source);
 
-	if (!u80211_key_validate_tkip_rx(device, &validation))
+	if (!u80211_key_validate_tkip_rx(device, &tkip_data))
 		return false;
 
 	*data_start = (void *)payload;
