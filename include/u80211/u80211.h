@@ -8,6 +8,7 @@
 #include <u80211/packet.h>
 #include <u80211/ap.h>
 #include <u80211/key.h>
+#include <u80211/status.h>
 
 static inline void *u80211_descriptor_allocate_space(u80211_tx_buffer_descriptor_t *descriptor, size_t size) {
 	if (size > descriptor->current_offset)
