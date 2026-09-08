@@ -1,9 +1,13 @@
 #include <u80211/status.h>
 #include <u80211/kernel_interface.h>
+#include <u80211/michael.h>
 #include <u80211/u80211.h>
 #include <u80211/util.h>
 
 #define SEQUENCE_SIZE 6
+#define TKIP_KEY_SIZE 32
+#define TKIP_RX_MIC_KEY_OFFSET 24
+#define MIC_SIZE 8
 
 typedef struct {
 	u80211_list_node_t node;
@@ -189,6 +193,37 @@ static bool sequence_is_newer(const uint8_t *sequence, const uint8_t *previous, 
 	}
 
 	return false;
+}
+
+static bool mic_equal(const uint8_t a[MIC_SIZE], const uint8_t b[MIC_SIZE]) {
+	uint8_t difference = 0;
+	for (size_t i = 0; i < MIC_SIZE; ++i)
+		difference |= a[i] ^ b[i];
+	return difference == 0;
+}
+
+bool u80211_key_validate_tkip_rx(u80211_device_t *device, const u80211_tkip_rx_validation_t *validation) {
+	bool valid = false;
+	u80211_kernel_acquire_spinlock(device->key_spinlock);
+
+	u80211_key_metadata_t *metadata = select_key_by_index(device, validation->header, validation->key_index);
+	if (metadata == NULL || metadata->cipher != U80211_CIPHER_TKIP || metadata->key_len != TKIP_KEY_SIZE)
+		goto unlock;
+	if (!sequence_is_newer(validation->sequence, metadata->rx_sequence, SEQUENCE_SIZE))
+		goto unlock;
+
+	uint8_t calculated_mic[MIC_SIZE];
+	u80211_michael_mic(metadata->key + TKIP_RX_MIC_KEY_OFFSET, validation->destination->bytes, validation->source->bytes,
+		validation->priority, validation->data, validation->data_size, calculated_mic);
+	if (!mic_equal(calculated_mic, validation->mic))
+		goto unlock;
+
+	u80211_memcpy(metadata->rx_sequence, validation->sequence, SEQUENCE_SIZE);
+	valid = true;
+
+unlock:
+	u80211_kernel_release_spinlock(device->key_spinlock);
+	return valid;
 }
 
 bool u80211_key_update_rx_sequence(u80211_device_t *device, const u80211_header_description_t *header, uint8_t index, u80211_cipher_t cipher, const uint8_t *sequence, size_t sequence_size) {
