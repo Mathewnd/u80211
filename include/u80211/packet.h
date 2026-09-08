@@ -15,6 +15,7 @@ typedef struct {
 
 typedef struct {
 	int key;
+	int cipher;
 } u80211_transmit_options_t;
 
 typedef struct {

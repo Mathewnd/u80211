@@ -303,7 +303,7 @@ int u80211_send_authentication(u80211_device_t *device, u80211_auth_data_t *auth
 	serialize_le16(data + 2, auth_data->auth_transaction);
 	serialize_le16(data + 4, auth_data->status);
 
-	const u80211_transmit_options_t options = { .key = -1 };
+	const u80211_transmit_options_t options = { .key = -1, .cipher = -1 };
 	return device->ops->transmit(device, &descriptor, &options);
 }
 
@@ -316,7 +316,7 @@ int u80211_send_deauthentication(u80211_device_t *device, u80211_deauthenticatio
 
 	serialize_le16(data, deauthentication_data->reason);
 
-	const u80211_transmit_options_t options = { .key = -1 };
+	const u80211_transmit_options_t options = { .key = -1, .cipher = -1 };
 	return device->ops->transmit(device, &descriptor, &options);
 }
 
@@ -335,7 +335,7 @@ int u80211_send_probe_request(u80211_device_t *device) {
 	probe_request_data[1] = 0;
 	serialize_rate_information_elements(probe_request_data + 2, device->metadata.rate_bitmap, rate_count);
 
-	const u80211_transmit_options_t options = { .key = -1 };
+	const u80211_transmit_options_t options = { .key = -1, .cipher = -1 };
 	return device->ops->transmit(device, &descriptor, &options);
 }
 
@@ -364,6 +364,6 @@ int u80211_send_association_request(u80211_device_t *device, const void *informa
 	if (information_elements_size != 0)
 		u80211_memcpy(data + 6 + ssid_size + rate_information_size, information_elements, information_elements_size);
 
-	const u80211_transmit_options_t options = { .key = -1 };
+	const u80211_transmit_options_t options = { .key = -1, .cipher = -1 };
 	return device->ops->transmit(device, &descriptor, &options);
 }

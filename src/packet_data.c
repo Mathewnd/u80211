@@ -174,6 +174,7 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 	u80211_ap_release(ap);
 
 	int key = u80211_select_key(device, &header);
+	int cipher = -1;
 	if (key >= 0) {
 		// supported cipher headers have two bits for key selection
 		if (key > 3) {
@@ -181,7 +182,7 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 			return U80211_STATUS_NOT_PERMITTED;
 		}
 
-		int cipher = u80211_select_cipher(device, &header);
+		cipher = u80211_select_cipher_by_index(device, &header, key);
 		int cipher_status;
 		switch (cipher) {
 			case U80211_CIPHER_CCMP:
@@ -206,6 +207,6 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 		return status;
 	}
 
-	const u80211_transmit_options_t options = { .key = key };
+	const u80211_transmit_options_t options = { .key = key, .cipher = cipher };
 	return device->ops->transmit(device, descriptor, &options);
 }
