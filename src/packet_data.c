@@ -9,6 +9,10 @@
 #define TX_BUFFER_HEADROOM 64
 #define CCMP_HEADER_SIZE 8
 #define CCMP_EXT_IV 0x20
+#define TKIP_HEADER_SIZE 8
+#define TKIP_MIC_SIZE 8
+#define TKIP_EXT_IV 0x20
+#define TX_BUFFER_TAILROOM TKIP_MIC_SIZE
 #define SEQUENCE_SIZE 6
 
 // this is the expected LLC/SNAP header for our use-case. it is then followed by a big-endian 16-bit ethertype.
@@ -50,14 +54,71 @@ void u80211_process_data_packet(u80211_device_t *device, u80211_header_descripti
 	u80211_kernel_receive_callback(device, data, data_size);
 }
 
+static int prepare_ccmp_tx(u80211_device_t *device, u80211_header_description_t *header, uint8_t key, u80211_tx_buffer_descriptor_t *descriptor) {
+	uint8_t *ccmp_header = u80211_descriptor_allocate_space(descriptor, CCMP_HEADER_SIZE);
+	if (ccmp_header == NULL)
+		return U80211_STATUS_NOT_ENOUGH_SPACE;
+
+	uint8_t sequence[SEQUENCE_SIZE];
+	if (!u80211_key_next_tx_sequence(device, header, key, U80211_CIPHER_CCMP, sequence, sizeof(sequence)))
+		return U80211_STATUS_NOT_PERMITTED;
+
+	// TODO: other hardware might provide more complete cipher handling, including the CCMP header
+	ccmp_header[0] = sequence[0];
+	ccmp_header[1] = sequence[1];
+	ccmp_header[2] = 0;
+	ccmp_header[3] = CCMP_EXT_IV | key << 6;
+	ccmp_header[4] = sequence[2];
+	ccmp_header[5] = sequence[3];
+	ccmp_header[6] = sequence[4];
+	ccmp_header[7] = sequence[5];
+	header->frame_control |= U80211_HEADER_FRAME_CONTROL_PROTECTED_FRAME;
+	return U80211_STATUS_SUCCESS;
+}
+
+static int prepare_tkip_tx(u80211_device_t *device, u80211_header_description_t *header, uint8_t key, u80211_tx_buffer_descriptor_t *descriptor) {
+	u80211_tkip_data_t tkip_data = {
+		.header = header,
+		.key_index = key,
+		.destination = &header->addresses[2],
+		.source = &header->addresses[1],
+		.priority = 0,
+		.data = (uint8_t *)descriptor->data + descriptor->current_offset,
+		.data_size = descriptor->size - descriptor->current_offset,
+	};
+
+	uint8_t *tkip_header = u80211_descriptor_allocate_space(descriptor, TKIP_HEADER_SIZE);
+	if (tkip_header == NULL)
+		return U80211_STATUS_NOT_ENOUGH_SPACE;
+
+	if (!u80211_key_prepare_tkip_tx(device, &tkip_data))
+		return U80211_STATUS_NOT_PERMITTED;
+
+	// TODO: other hardware might not expect something exactly like this. this code adds both
+	// the header and the trailing mic.
+	tkip_header[0] = tkip_data.sequence[1];
+	tkip_header[1] = (tkip_data.sequence[1] | 0x20) & 0x7f;
+	tkip_header[2] = tkip_data.sequence[0];
+	tkip_header[3] = TKIP_EXT_IV | key << 6;
+	tkip_header[4] = tkip_data.sequence[2];
+	tkip_header[5] = tkip_data.sequence[3];
+	tkip_header[6] = tkip_data.sequence[4];
+	tkip_header[7] = tkip_data.sequence[5];
+	u80211_memcpy((uint8_t *)descriptor->data + descriptor->size, tkip_data.mic, TKIP_MIC_SIZE);
+	descriptor->size += TKIP_MIC_SIZE;
+	header->frame_control |= U80211_HEADER_FRAME_CONTROL_PROTECTED_FRAME;
+	return U80211_STATUS_SUCCESS;
+}
+
 int u80211_allocate_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor) {
-	int status = device->ops->allocate_tx_buffer(device, ETHERNET_MAX_FRAME_SIZE + TX_BUFFER_HEADROOM, descriptor);
+	int status = device->ops->allocate_tx_buffer(device, ETHERNET_MAX_FRAME_SIZE + TX_BUFFER_HEADROOM + TX_BUFFER_TAILROOM, descriptor);
 	if (status != U80211_STATUS_SUCCESS)
 		return status;
 
+	// keep MIC tailroom outside the logical buffer so other ciphers do not transmit it
 	descriptor->data = (void *)((uintptr_t)descriptor->data + TX_BUFFER_HEADROOM);
-	descriptor->size -= TX_BUFFER_HEADROOM;
-	descriptor->current_offset -= TX_BUFFER_HEADROOM;
+	descriptor->size -= TX_BUFFER_HEADROOM + TX_BUFFER_TAILROOM;
+	descriptor->current_offset -= TX_BUFFER_HEADROOM + TX_BUFFER_TAILROOM;
 	return U80211_STATUS_SUCCESS;
 }
 
@@ -114,42 +175,28 @@ int u80211_transmit_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_
 
 	int key = u80211_select_key(device, &header);
 	if (key >= 0) {
+		// supported cipher headers have two bits for key selection
+		if (key > 3) {
+			device->ops->free_tx_buffer(device, descriptor);
+			return U80211_STATUS_NOT_PERMITTED;
+		}
+
 		int cipher = u80211_select_cipher(device, &header);
+		int cipher_status;
 		switch (cipher) {
-			case U80211_CIPHER_CCMP: {
-				// ccmp header has two bits for key selection
-				if (key > 3) {
-					device->ops->free_tx_buffer(device, descriptor);
-					return U80211_STATUS_NOT_PERMITTED;
-				}
-
-				uint8_t *ccmp_header = u80211_descriptor_allocate_space(descriptor, CCMP_HEADER_SIZE);
-				if (ccmp_header == NULL) {
-					device->ops->free_tx_buffer(device, descriptor);
-					return U80211_STATUS_NOT_ENOUGH_SPACE;
-				}
-
-				uint8_t sequence[SEQUENCE_SIZE];
-				if (!u80211_key_next_tx_sequence(device, &header, key, U80211_CIPHER_CCMP, sequence, sizeof(sequence))) {
-					device->ops->free_tx_buffer(device, descriptor);
-					return U80211_STATUS_NOT_PERMITTED;
-				}
-
-				// TODO: other hardware might provide more complete cipher handling, including the CCMP header
-				ccmp_header[0] = sequence[0];
-				ccmp_header[1] = sequence[1];
-				ccmp_header[2] = 0;
-				ccmp_header[3] = CCMP_EXT_IV | (uint8_t)key << 6;
-				ccmp_header[4] = sequence[2];
-				ccmp_header[5] = sequence[3];
-				ccmp_header[6] = sequence[4];
-				ccmp_header[7] = sequence[5];
-				header.frame_control |= U80211_HEADER_FRAME_CONTROL_PROTECTED_FRAME;
+			case U80211_CIPHER_CCMP:
+				cipher_status = prepare_ccmp_tx(device, &header, key, descriptor);
 				break;
-			}
+			case U80211_CIPHER_TKIP:
+				cipher_status = prepare_tkip_tx(device, &header, key, descriptor);
+				break;
 			default:
 				device->ops->free_tx_buffer(device, descriptor);
 				return U80211_STATUS_UNSUPPORTED;
+		}
+		if (cipher_status != U80211_STATUS_SUCCESS) {
+			device->ops->free_tx_buffer(device, descriptor);
+			return cipher_status;
 		}
 	}
 
