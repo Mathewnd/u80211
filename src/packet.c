@@ -109,8 +109,8 @@ static int deserialize_data_header(void *source, size_t source_size, u80211_head
 	u80211_memcpy(&header->addresses[2], (const void *)((uintptr_t)source + 6), 6);
 
 	if (header_size == 20) {
-		u80211_memcpy(&header->addresses[3], (const void *)((uintptr_t)source + 12), 6);
-		header->sequence_control = deserialize_le16((const void *)((uintptr_t)source + 18));
+		header->sequence_control = deserialize_le16((const void *)((uintptr_t)source + 12));
+		u80211_memcpy(&header->addresses[3], (const void *)((uintptr_t)source + 14), 6);
 	} else {
 		header->sequence_control = deserialize_le16((const void *)((uintptr_t)source + 12));
 	}
@@ -186,8 +186,8 @@ static int serialize_data_header(u80211_header_description_t *header, u80211_tx_
 	u80211_memcpy(destination + 16, &header->addresses[2], 6);
 
 	if (header_size == 30) {
-		u80211_memcpy(destination + 22, &header->addresses[3], 6);
-		serialize_le16(destination + 28, header->sequence_control);
+		serialize_le16(destination + 22, header->sequence_control);
+		u80211_memcpy(destination + 24, &header->addresses[3], 6);
 	} else {
 		serialize_le16(destination + 22, header->sequence_control);
 	}
