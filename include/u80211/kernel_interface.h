@@ -90,7 +90,7 @@ void u80211_kernel_enqueue_delayed_work(void *work, void *timer, u80211_kernel_w
 
 // frees the work object referenced by 'work'
 // 'work' will never be NULL
-// may be called by the work's callback
+// must not be called by the work's callback
 void u80211_kernel_free_work(void *work);
 
 // kernel packet receive callback

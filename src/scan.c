@@ -45,17 +45,28 @@ static void destroy_scan_state(u80211_scan_state_t *scan_state) {
 	u80211_kernel_free(scan_state);
 }
 
+static void cleanup_scan(void *ctx);
+
 static void complete_scan(u80211_scan_state_t *scan_state) {
 	u80211_device_t *device = scan_state->device;
 
 	u80211_kernel_acquire_spinlock(device->scan_spinlock);
-
-	u80211_set_device_state(device, U80211_DEVICE_STATE_SCANNING, U80211_DEVICE_STATE_DOWN);
-	wake_scan_waiters(device);
-
+	device->scan_context = NULL;
 	u80211_kernel_release_spinlock(device->scan_spinlock);
 
+	u80211_kernel_enqueue_work(device->scan_cleanup_work, cleanup_scan, scan_state);
+}
+
+static void cleanup_scan(void *ctx) {
+	u80211_scan_state_t *scan_state = ctx;
+	u80211_device_t *device = scan_state->device;
+
 	destroy_scan_state(scan_state);
+
+	u80211_kernel_acquire_spinlock(device->scan_spinlock);
+	u80211_set_device_state(device, U80211_DEVICE_STATE_SCANNING, U80211_DEVICE_STATE_DOWN);
+	wake_scan_waiters(device);
+	u80211_kernel_release_spinlock(device->scan_spinlock);
 }
 
 void u80211_scan_process_response(u80211_device_t *device, u80211_beacon_data_t *beacon_data) {

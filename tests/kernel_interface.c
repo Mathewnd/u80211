@@ -19,7 +19,6 @@ struct kernel_work {
 	pthread_cond_t condition;
 	int stopping;
 	int pending;
-	int destroy_on_exit;
 	struct timespec deadline;
 	kernel_timer_t *timer;
 	u80211_kernel_work_fn_t function;
@@ -106,10 +105,7 @@ static void *work_thread(void *argument) {
 		pthread_mutex_lock(&work_state_mutex);
 	}
 
-	int destroy_on_exit = work->destroy_on_exit;
 	pthread_mutex_unlock(&work_state_mutex);
-	if (destroy_on_exit)
-		destroy_work(work);
 	return NULL;
 }
 
@@ -319,23 +315,16 @@ void u80211_kernel_enqueue_delayed_work(void *opaque_work, void *opaque_timer, u
 
 void u80211_kernel_free_work(void *opaque_work) {
 	kernel_work_t *work = opaque_work;
-	int destroy_on_exit = pthread_equal(pthread_self(), work->thread);
 
 	pthread_mutex_lock(&work_state_mutex);
 	work->stopping = 1;
 	work->pending = 0;
-	work->destroy_on_exit = destroy_on_exit;
 	if (work->timer != NULL) {
 		work->timer->work = NULL;
 		work->timer = NULL;
 	}
 	pthread_cond_signal(&work->condition);
 	pthread_mutex_unlock(&work_state_mutex);
-
-	if (destroy_on_exit) {
-		pthread_detach(work->thread);
-		return;
-	}
 
 	pthread_join(work->thread, NULL);
 	destroy_work(work);
