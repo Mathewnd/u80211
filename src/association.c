@@ -12,7 +12,9 @@
 typedef struct {
 	void *completion_work;
 	void *auth_timeout_work;
+	void *auth_timeout_timer;
 	void *assoc_timeout_work;
+	void *assoc_timeout_timer;
 	unsigned int generation;
 	unsigned int timeouts_in_flight;
 	u80211_device_t *device;
@@ -37,6 +39,8 @@ static void wake_association_waiters(u80211_device_t *device, int result) {
 }
 
 static void destroy_association_context(u80211_association_context_t *association_context) {
+	u80211_kernel_free_timer(association_context->auth_timeout_timer);
+	u80211_kernel_free_timer(association_context->assoc_timeout_timer);
 	u80211_kernel_free_work(association_context->completion_work);
 	u80211_kernel_free_work(association_context->auth_timeout_work);
 	u80211_kernel_free_work(association_context->assoc_timeout_work);
@@ -105,7 +109,7 @@ static void association_process_teardown(u80211_device_t *device, const u80211_m
 leave:
 	u80211_kernel_release_spinlock(device->association_spinlock);
 	if (cleanup_needed)
-		u80211_kernel_enqueue_work(device->association_cleanup_work, release_disconnected_ap, device, 0);
+		u80211_kernel_enqueue_work(device->association_cleanup_work, release_disconnected_ap, device);
 }
 
 void u80211_association_process_deauthentication(u80211_device_t *device, u80211_deauthentication_data_t *deauthentication_data) {
@@ -184,7 +188,8 @@ static void auth_completion_work(void *ctx) {
 
 	u80211_send_association_request(device, association_context->information_elements, association_context->information_elements_size);
 	__atomic_add_fetch(&association_context->timeouts_in_flight, 1, __ATOMIC_RELAXED);
-	u80211_kernel_enqueue_work(association_context->assoc_timeout_work, assoc_timeout, association_context, ASSOC_TIMEOUT);
+	u80211_kernel_enqueue_delayed_work(association_context->assoc_timeout_work, association_context->assoc_timeout_timer,
+		assoc_timeout, association_context, ASSOC_TIMEOUT);
 }
 
 void u80211_association_process_authentication(u80211_device_t *device, u80211_auth_data_t *auth_data) {
@@ -213,7 +218,7 @@ void u80211_association_process_authentication(u80211_device_t *device, u80211_a
 			goto leave;
 
 		u80211_association_context_t *ctx = device->association_context;
-		u80211_kernel_enqueue_work(ctx->completion_work, auth_completion_work, ctx, 0);
+		u80211_kernel_enqueue_work(ctx->completion_work, auth_completion_work, ctx);
 	}
 
 leave:
@@ -247,8 +252,27 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap, const void *infor
 		return U80211_STATUS_ENOMEM;
 	}
 
+	association_context->auth_timeout_timer = u80211_kernel_allocate_timer();
+	if (association_context->auth_timeout_timer == NULL) {
+		u80211_kernel_free_work(association_context->auth_timeout_work);
+		u80211_kernel_free_work(association_context->completion_work);
+		u80211_kernel_free(association_context);
+		return U80211_STATUS_ENOMEM;
+	}
+
 	association_context->assoc_timeout_work = u80211_kernel_allocate_work();
 	if (association_context->assoc_timeout_work == NULL) {
+		u80211_kernel_free_timer(association_context->auth_timeout_timer);
+		u80211_kernel_free_work(association_context->auth_timeout_work);
+		u80211_kernel_free_work(association_context->completion_work);
+		u80211_kernel_free(association_context);
+		return U80211_STATUS_ENOMEM;
+	}
+
+	association_context->assoc_timeout_timer = u80211_kernel_allocate_timer();
+	if (association_context->assoc_timeout_timer == NULL) {
+		u80211_kernel_free_work(association_context->assoc_timeout_work);
+		u80211_kernel_free_timer(association_context->auth_timeout_timer);
 		u80211_kernel_free_work(association_context->auth_timeout_work);
 		u80211_kernel_free_work(association_context->completion_work);
 		u80211_kernel_free(association_context);
@@ -296,7 +320,8 @@ int u80211_associate(u80211_device_t *device, u80211_ap_t *ap, const void *infor
 	device->ops->set_channel(device, ap->channel);
 	u80211_send_authentication(device, &auth_data);
 
-	u80211_kernel_enqueue_work(association_context->auth_timeout_work, auth_timeout, association_context, AUTH_TIMEOUT);
+	u80211_kernel_enqueue_delayed_work(association_context->auth_timeout_work, association_context->auth_timeout_timer,
+		auth_timeout, association_context, AUTH_TIMEOUT);
 
 	return 0;
 }

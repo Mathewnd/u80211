@@ -22,6 +22,7 @@ typedef struct {
 	bool receiving;
 	int current_channel;
 	void *work;
+	void *timer;
 } u80211_scan_state_t;
 
 typedef struct {
@@ -38,6 +39,7 @@ static void wake_scan_waiters(u80211_device_t *device) {
 }
 
 static void destroy_scan_state(u80211_scan_state_t *scan_state) {
+	u80211_kernel_free_timer(scan_state->timer);
 	u80211_kernel_free_work(scan_state->work);
 	u80211_ringbuffer_destroy(&scan_state->buffer);
 	u80211_kernel_free(scan_state);
@@ -151,7 +153,7 @@ static void scan_work(void *ctx) {
 
 	u80211_send_probe_request(device);
 
-	u80211_kernel_enqueue_work(scan_state->work, scan_work, scan_state, WAIT_MS);
+	u80211_kernel_enqueue_delayed_work(scan_state->work, scan_state->timer, scan_work, scan_state, WAIT_MS);
 }
 
 int u80211_scan(u80211_device_t *device) {
@@ -167,6 +169,14 @@ int u80211_scan(u80211_device_t *device) {
 
 	scan_state->work = u80211_kernel_allocate_work();
 	if (scan_state->work == NULL) {
+		u80211_ringbuffer_destroy(&scan_state->buffer);
+		u80211_kernel_free(scan_state);
+		return U80211_STATUS_ENOMEM;
+	}
+
+	scan_state->timer = u80211_kernel_allocate_timer();
+	if (scan_state->timer == NULL) {
+		u80211_kernel_free_work(scan_state->work);
 		u80211_ringbuffer_destroy(&scan_state->buffer);
 		u80211_kernel_free(scan_state);
 		return U80211_STATUS_ENOMEM;
@@ -199,7 +209,7 @@ int u80211_scan(u80211_device_t *device) {
 
 	u80211_send_probe_request(device);
 
-	u80211_kernel_enqueue_work(scan_state->work, scan_work, scan_state, WAIT_MS);
+	u80211_kernel_enqueue_delayed_work(scan_state->work, scan_state->timer, scan_work, scan_state, WAIT_MS);
 
 	return U80211_STATUS_SUCCESS;
 }
