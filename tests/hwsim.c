@@ -58,8 +58,8 @@ static void clear_descriptor(u80211_tx_buffer_descriptor_t *descriptor) {
 	descriptor->current_offset = 0;
 }
 
-static int allocate_tx_buffer(u80211_device_t *device, size_t size, u80211_tx_buffer_descriptor_t *descriptor) {
-	(void)device;
+static int allocate_tx_buffer(void *driver_data, size_t size, u80211_tx_buffer_descriptor_t *descriptor) {
+	(void)driver_data;
 
 	void *data = malloc(size);
 	if (data == NULL)
@@ -71,19 +71,19 @@ static int allocate_tx_buffer(u80211_device_t *device, size_t size, u80211_tx_bu
 	return U80211_STATUS_SUCCESS;
 }
 
-static int free_tx_buffer(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor) {
-	(void)device;
+static int free_tx_buffer(void *driver_data, u80211_tx_buffer_descriptor_t *descriptor) {
+	(void)driver_data;
 
 	free(descriptor->data);
 	clear_descriptor(descriptor);
 	return U80211_STATUS_SUCCESS;
 }
 
-static int transmit(u80211_device_t *device, u80211_tx_buffer_descriptor_t *descriptor, const u80211_transmit_options_t *options) {
+static int transmit(void *driver_data, u80211_tx_buffer_descriptor_t *descriptor, const u80211_transmit_options_t *options) {
 	(void)options;
 	int result = 0;
 
-	hwsim_device_t *hwsim = device->driver_data;
+	hwsim_device_t *hwsim = driver_data;
 	const uint8_t radiotap[] = {
 		0x00, 0x00, 0x08, 0x00,
 		0x00, 0x00, 0x00, 0x00,
@@ -126,8 +126,8 @@ static int transmit(u80211_device_t *device, u80211_tx_buffer_descriptor_t *desc
 	return status_from_errno(result);
 }
 
-static int set_channel(u80211_device_t *device, int channel) {
-	hwsim_device_t *hwsim = device->driver_data;
+static int set_channel(void *driver_data, int channel) {
+	hwsim_device_t *hwsim = driver_data;
 	char channel_string[16];
 	snprintf(channel_string, sizeof(channel_string), "%d", channel);
 	char *arguments[] = {
