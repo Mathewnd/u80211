@@ -23,13 +23,13 @@ static int validate_scan_results(u80211_device_t *device) {
 		{ .ssid = "Bar Park", .channel = 11 },
 	};
 	const size_t expected_count = sizeof(expected) / sizeof(expected[0]);
-	size_t cache_count = u80211_bss_cache_get_count(&device->bss_cache);
+	size_t cache_count = u80211_bss_cache_get_count(device);
 	bool valid = cache_count == expected_count;
 	if (!valid)
 		fprintf(stderr, "expected %zu access points, found %zu\n", expected_count, cache_count);
 
 	u80211_ap_t *aps[sizeof(expected) / sizeof(expected[0])];
-	size_t ap_count = u80211_bss_cache_get_aps(&device->bss_cache, aps, expected_count);
+	size_t ap_count = u80211_bss_cache_get_aps(device, aps, expected_count);
 	if (ap_count != cache_count) {
 		fprintf(stderr, "expected to read %zu access points, read %zu\n", cache_count, ap_count);
 		for (size_t i = 0; i < ap_count; ++i)

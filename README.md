@@ -39,7 +39,7 @@ int scan_and_print(u80211_device_t *device) {
 
     u80211_ap_t *access_points[64];
     size_t count = u80211_bss_cache_get_aps(
-        &device->bss_cache, access_points,
+        device, access_points,
         sizeof(access_points) / sizeof(access_points[0]));
 
     for (size_t i = 0; i < count; ++i) {

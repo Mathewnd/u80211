@@ -50,7 +50,7 @@ static void wait_for_delayed_association_work(void) {
 }
 
 static u80211_ap_t *find_foo_university(u80211_device_t *device) {
-	size_t capacity = u80211_bss_cache_get_count(&device->bss_cache);
+	size_t capacity = u80211_bss_cache_get_count(device);
 	if (capacity == 0)
 		return NULL;
 
@@ -58,7 +58,7 @@ static u80211_ap_t *find_foo_university(u80211_device_t *device) {
 	if (aps == NULL)
 		return NULL;
 
-	size_t count = u80211_bss_cache_get_aps(&device->bss_cache, aps, capacity);
+	size_t count = u80211_bss_cache_get_aps(device, aps, capacity);
 	u80211_ap_t *foo_university = NULL;
 	for (size_t i = 0; i < count; ++i) {
 		if (foo_university == NULL && strcmp(aps[i]->ssid, "Foo University") == 0)

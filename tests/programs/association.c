@@ -162,7 +162,7 @@ static bool wait_for_ap_cleanup(u80211_device_t *device) {
 }
 
 static u80211_ap_t *find_cat_cafe(u80211_device_t *device) {
-	size_t capacity = u80211_bss_cache_get_count(&device->bss_cache);
+	size_t capacity = u80211_bss_cache_get_count(device);
 	if (capacity == 0)
 		return NULL;
 
@@ -170,7 +170,7 @@ static u80211_ap_t *find_cat_cafe(u80211_device_t *device) {
 	if (aps == NULL)
 		return NULL;
 
-	size_t count = u80211_bss_cache_get_aps(&device->bss_cache, aps, capacity);
+	size_t count = u80211_bss_cache_get_aps(device, aps, capacity);
 	u80211_ap_t *cat_cafe = NULL;
 	for (size_t i = 0; i < count; ++i) {
 		if (cat_cafe == NULL && strcmp(aps[i]->ssid, "Cat Cafe") == 0)
